@@ -95,6 +95,23 @@ def _patch_video_pipeline(
     return capture_holder
 
 
+def _patch_person_detector(monkeypatch, client, boxes_per_frame: int):
+    """Fakes the app's shared `PersonDetector` so `visible_count` is a fixed,
+    known number distinct from whatever `_fake_frame_result`'s DM-Count
+    `estimated_count` reports for that frame."""
+    from crowdmon.detection import PersonDetection
+
+    detector = client.app.state.app_state.person_detector
+    # `is_available` is a read-only property on the class -- patch it there
+    # (monkeypatch reverts automatically), not as an instance attribute.
+    monkeypatch.setattr(type(detector), "is_available", True)
+
+    def fake_detect(frame):
+        return [PersonDetection(x1=0, y1=0, x2=5, y2=5, confidence=0.99) for _ in range(boxes_per_frame)]
+
+    monkeypatch.setattr(detector, "detect", fake_detect)
+
+
 def _wait_for_status(client, job_id: str, terminal_statuses, timeout: float = 5.0) -> dict:
     deadline = time.time() + timeout
     last = None
@@ -150,6 +167,45 @@ def test_video_job_runner_completes_with_progress_and_summary(monkeypatch, clien
 
     # VideoCapture is always released once processing finishes
     assert capture_holder["cap"].released is True
+
+
+def test_video_job_visible_count_stays_distinct_from_estimated_count(monkeypatch, client):
+    """visible_count (person detector boxes) and estimated_count (DM-Count)
+    must never be conflated -- here they're deliberately different numbers
+    end to end, through JobStore and the job.completed WebSocket event."""
+    _patch_video_pipeline(monkeypatch, client, n_frames=3)
+    _patch_person_detector(monkeypatch, client, boxes_per_frame=7)
+    files = {"video": ("clip.mp4", b"fake video bytes", "video/mp4")}
+    job_id = client.post("/api/jobs/video", files=files).json()["job_id"]
+
+    final = _wait_for_status(client, job_id, {"completed", "failed"})
+
+    assert final["status"] == "completed"
+    final_metrics = final["video_result"]["final_metrics"]
+    assert final_metrics["visible_count"] == 7
+    assert final_metrics["estimated_count"] == 3.0  # frame 3 of `_fake_frame_result`
+    assert final_metrics["visible_count"] != final_metrics["estimated_count"]
+
+    # Same distinction must be visible in incrementally-stored progress too.
+    assert final["latest_metrics"]["visible_count"] == 7
+    assert final["latest_metrics"]["estimated_count"] == 3.0
+
+
+def test_video_job_visible_count_is_null_when_detector_unavailable(monkeypatch, client):
+    """No MobileNet-SSD model files in this test environment -> visible_count
+    must be reported as `null` (unavailable), never a fabricated 0, while
+    estimated_count (DM-Count) is unaffected."""
+    assert client.app.state.app_state.person_detector.is_available is False  # no weight files in this env
+
+    _patch_video_pipeline(monkeypatch, client, n_frames=2)
+    files = {"video": ("clip.mp4", b"fake video bytes", "video/mp4")}
+    job_id = client.post("/api/jobs/video", files=files).json()["job_id"]
+
+    final = _wait_for_status(client, job_id, {"completed", "failed"})
+
+    assert final["status"] == "completed"
+    assert final["video_result"]["final_metrics"]["visible_count"] is None
+    assert final["video_result"]["final_metrics"]["estimated_count"] == 2.0
 
 
 def test_video_job_temp_file_removed_after_completion(monkeypatch, client):
@@ -274,14 +330,17 @@ def test_run_video_job_emits_started_progress_completed_in_order(monkeypatch, cl
     from backend.app.jobs.store import JobStore
     from backend.app.jobs.video_runner import run_video_job
 
-    runtime = client.app.state.app_state.pipeline_runtime
+    app_state = client.app.state.app_state
+    runtime = app_state.pipeline_runtime
     _patch_video_pipeline(monkeypatch, client, n_frames=3)
 
     job_store = JobStore()
     job = job_store.create(job_type=JobType.VIDEO, source_description="clip.mp4", temp_path=Path("/tmp/unused.mp4"))
     conn_manager = _RecordingConnectionManager()
 
-    asyncio.run(run_video_job(job.job_id, job.temp_path, runtime, job_store, conn_manager))
+    asyncio.run(
+        run_video_job(job.job_id, job.temp_path, runtime, job_store, conn_manager, app_state.person_detector)
+    )
 
     record = job_store.get(job.job_id)
     assert record.status.value == "completed"

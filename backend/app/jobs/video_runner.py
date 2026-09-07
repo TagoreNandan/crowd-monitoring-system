@@ -1,13 +1,15 @@
 """Background runner for video jobs: owns the frame-by-frame loop that
 Phase 1's `POST /api/jobs/video` deliberately left unimplemented.
 
-Runs entirely off the asyncio event loop -- every OpenCV call and every
-`PipelineRuntime.analyze()` call goes through `PipelineRuntime`'s existing
-single-worker executor (see `pipeline_runtime.py`), so a multi-minute video
-never blocks WebSocket heartbeats or other requests. No new model, executor,
-or inference logic is constructed here; frame-level bookkeeping (peak count,
-growth-ratio trend) reuses `crowdmon.video.StreamState`, the same helper the
-CLI's video loop already uses.
+Runs entirely off the asyncio event loop -- every OpenCV call, every
+`PipelineRuntime.analyze()` call, and every `PersonDetector.detect()` call
+goes through `PipelineRuntime`'s existing single-worker executor (see
+`pipeline_runtime.py`), so a multi-minute video never blocks WebSocket
+heartbeats or other requests. No new model or inference logic is
+constructed here beyond the separate, optional `PersonDetector` (see
+`crowdmon.detection`); frame-level bookkeeping (peak count, growth-ratio
+trend) reuses `crowdmon.video.StreamState`, the same helper the CLI's video
+loop already uses.
 """
 
 from __future__ import annotations
@@ -16,10 +18,12 @@ import asyncio
 import logging
 import time
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, List, Optional
 
 import cv2
 
+from crowdmon.detection import PersonDetection, PersonDetector
+from crowdmon.overlay import render_video_overlay
 from crowdmon.video import StreamState
 
 from ..pipeline_runtime import PipelineRuntime
@@ -34,6 +38,10 @@ logger = logging.getLogger(__name__)
 # stream never floods the socket.
 PROGRESS_EMIT_INTERVAL_S = 0.15
 
+# Fallback used only if the source video reports no/invalid FPS -- same
+# fallback value scripts/run_video.py already uses for its own writer.
+_DEFAULT_OUTPUT_FPS = 20.0
+
 # Holds in-flight job tasks purely so they can't be garbage-collected
 # mid-run (the standard asyncio idiom for a `create_task()` result nothing
 # awaits) -- entries are removed by `_on_task_done` as each task finishes.
@@ -46,11 +54,14 @@ def schedule_video_job(
     runtime: PipelineRuntime,
     job_store: JobStore,
     connection_manager: ConnectionManager,
+    person_detector: PersonDetector,
 ) -> asyncio.Task:
     """Fire-and-forget `run_video_job` onto the running event loop and
     return immediately -- called from the request handler so `POST
     /api/jobs/video` never waits on video processing."""
-    task = asyncio.create_task(run_video_job(job_id, video_path, runtime, job_store, connection_manager))
+    task = asyncio.create_task(
+        run_video_job(job_id, video_path, runtime, job_store, connection_manager, person_detector)
+    )
     _background_tasks.add(task)
     task.add_done_callback(_on_task_done)
     return task
@@ -75,6 +86,7 @@ def _build_metrics(
     elapsed_s: float,
     result: Any,
     peak_count: float,
+    visible_count: Optional[int],
 ) -> VideoFrameMetrics:
     density = float(result.risk.components.get("relative_density_per_100px2", 0.0) or 0.0)
     latency_ms = float(result.inference.latency_ms)
@@ -82,7 +94,8 @@ def _build_metrics(
         frame_number=frame_number,
         total_frames=total_frames,
         elapsed_s=round(elapsed_s, 3),
-        current_count=round(float(result.inference.count), 2),
+        visible_count=visible_count,
+        estimated_count=round(float(result.inference.count), 2),
         peak_count=round(float(peak_count), 2),
         density=round(density, 3),
         cluster_count=int(result.clusters.n_clusters),
@@ -94,28 +107,69 @@ def _build_metrics(
     )
 
 
+async def _detect_persons(
+    runtime: PipelineRuntime,
+    person_detector: PersonDetector,
+    frame,
+    job_id: str,
+    detector_broken: bool,
+) -> tuple[List[PersonDetection], Optional[int], bool]:
+    """Runs the (optional) person detector for one frame. Returns
+    `(detections, visible_count, detector_broken)` -- `visible_count` is
+    `None`, never a fake 0, whenever detection didn't actually run (model
+    files missing, or it failed once already this job)."""
+    if detector_broken or not person_detector.is_available:
+        return [], None, detector_broken
+    try:
+        detections = await runtime.run_sync(person_detector.detect, frame)
+        return detections, len(detections), detector_broken
+    except Exception:
+        logger.exception(
+            "Person detector failed for job %s; visible_count will be unavailable for the rest of this job", job_id
+        )
+        return [], None, True
+
+
 async def run_video_job(
     job_id: str,
     video_path: Path,
     runtime: PipelineRuntime,
     job_store: JobStore,
     connection_manager: ConnectionManager,
+    person_detector: PersonDetector,
 ) -> None:
     """Process one video job start to finish: open it, analyze every frame
-    through the existing pipeline, publish typed progress over the job's
+    through the existing pipeline (plus the separate, optional person
+    detector for `visible_count`), publish typed progress over the job's
     WebSocket channel, and always end in `completed` or `failed` -- never
-    left `running` -- with the temp upload removed either way."""
+    left `running` -- with all temp files removed either way.
+
+    The annotated (boxes + stats panel) frame is written straight to a
+    scratch output video one frame at a time via `cv2.VideoWriter` -- it is
+    never sent over the WebSocket and never collected into a list, so a
+    long video's memory footprint stays flat. Nothing in this phase serves
+    or retains that annotated video afterwards (no download endpoint was
+    requested), so it's deleted alongside the input upload once the job
+    ends; the point of writing it here is to exercise the real overlay
+    end-to-end, not to leave a dangling artifact.
+    """
     channel = connection_manager.job_channel(job_id)
     record = job_store.get(job_id)
     source_description = record.source_description if record is not None else ""
 
     cap: Optional[cv2.VideoCapture] = None
+    annotated_writer = None
+    annotated_path = video_path.with_name(f"{video_path.stem}_annotated.mp4")
     started = time.time()
     state = StreamState()
     frames_processed = 0
     total_frames: Optional[int] = None
     latest_metrics: Optional[VideoFrameMetrics] = None
     last_emit = 0.0
+    detector_broken = False
+
+    if not person_detector.is_available:
+        logger.info("Person detector model files not found; job %s will report visible_count=null", job_id)
 
     try:
         job_store.mark_running(job_id)
@@ -137,6 +191,9 @@ async def run_video_job(
         if raw_total and raw_total > 0:
             total_frames = int(raw_total)
 
+        raw_fps = await runtime.run_sync(cap.get, cv2.CAP_PROP_FPS)
+        output_fps = raw_fps if raw_fps and raw_fps > 0 else _DEFAULT_OUTPUT_FPS
+
         while True:
             ok, frame = await runtime.run_sync(cap.read)
             if not ok:
@@ -146,13 +203,27 @@ async def run_video_job(
             state.update(result.inference.count)
             frames_processed += 1
 
+            detections, visible_count, detector_broken = await _detect_persons(
+                runtime, person_detector, frame, job_id, detector_broken
+            )
+
             latest_metrics = _build_metrics(
                 frame_number=frames_processed,
                 total_frames=total_frames,
                 elapsed_s=time.time() - started,
                 result=result,
                 peak_count=state.peak_count,
+                visible_count=visible_count,
             )
+
+            annotated = render_video_overlay(frame, detections, **latest_metrics.model_dump())
+            if annotated_writer is None:
+                h, w = annotated.shape[:2]
+                fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+                annotated_writer = await runtime.run_sync(
+                    cv2.VideoWriter, str(annotated_path), fourcc, output_fps, (w, h)
+                )
+            await runtime.run_sync(annotated_writer.write, annotated)
 
             progress = (frames_processed / total_frames) if total_frames else 0.0
             job_store.update_video_progress(
@@ -208,7 +279,16 @@ async def run_video_job(
                 await runtime.run_sync(cap.release)
             except Exception:
                 logger.exception("Failed to release VideoCapture for job %s", job_id)
+        if annotated_writer is not None:
+            try:
+                await runtime.run_sync(annotated_writer.release)
+            except Exception:
+                logger.exception("Failed to release annotated VideoWriter for job %s", job_id)
         try:
             video_path.unlink(missing_ok=True)
         except OSError:
             logger.warning("Failed to remove temp video for job %s", job_id, exc_info=True)
+        try:
+            annotated_path.unlink(missing_ok=True)
+        except OSError:
+            logger.warning("Failed to remove annotated temp video for job %s", job_id, exc_info=True)

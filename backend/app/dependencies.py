@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from fastapi import Request
 
+from crowdmon.detection import PersonDetector
+
 from .jobs.store import JobStore
 from .pipeline_runtime import PipelineRuntime
 from .state import AppState
@@ -22,3 +24,7 @@ def get_job_store(request: Request) -> JobStore:
 
 def get_connection_manager(request: Request) -> ConnectionManager:
     return get_app_state(request).connection_manager
+
+
+def get_person_detector(request: Request) -> PersonDetector:
+    return get_app_state(request).person_detector

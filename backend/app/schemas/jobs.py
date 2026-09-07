@@ -59,7 +59,13 @@ class VideoFrameMetrics(BaseModel):
     frame_number: int
     total_frames: Optional[int] = None
     elapsed_s: float
-    current_count: float
+    # Two deliberately separate counts (never conflated): `visible_count` is
+    # the MobileNet-SSD person detector's real bounding-box count for this
+    # frame (`None` if the detector is unavailable, never a fake 0);
+    # `estimated_count` is DM-Count's dense, occlusion-robust estimate --
+    # the same value the image-job pipeline already produces.
+    visible_count: Optional[int] = None
+    estimated_count: float
     peak_count: float
     density: float
     cluster_count: int

@@ -36,6 +36,13 @@ class Settings(BaseSettings):
     max_image_upload_mb: float = 25.0
     max_video_upload_mb: float = 2048.0
 
+    # Confidence threshold for the video job runner's MobileNet-SSD person
+    # detector (visible_count). Model files themselves are located via the
+    # CROWDMON_SSD_PROTOTXT/CROWDMON_SSD_CAFFEMODEL env vars (see
+    # crowdmon.detection) -- this only tunes how confident a detection must
+    # be to count as a real person box.
+    person_detection_confidence: float = 0.4
+
     @property
     def cors_origin_list(self) -> list[str]:
         return [origin.strip() for origin in self.cors_allow_origins.split(",") if origin.strip()]
