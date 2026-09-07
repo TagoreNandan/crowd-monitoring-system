@@ -14,11 +14,12 @@ def test_auto_resolves_to_a_real_device():
 
 
 def test_unavailable_backend_falls_back_to_cpu():
-    # This container has no GPU, so explicitly requesting cuda/mps must not crash.
-    dev = resolve_device("cuda")
-    assert dev.type == "cpu"
-    dev = resolve_device("mps")
-    assert dev.type == "cpu"
+    if not torch.cuda.is_available():
+        dev = resolve_device("cuda")
+        assert dev.type == "cpu"
+    if not (hasattr(torch.backends, "mps") and torch.backends.mps.is_available()):
+        dev = resolve_device("mps")
+        assert dev.type == "cpu"
 
 
 def test_device_name_readable():

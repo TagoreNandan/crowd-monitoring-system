@@ -102,6 +102,11 @@ class PipelineRuntime:
         loop = asyncio.get_running_loop()
         await loop.run_in_executor(self._executor, self._build_pipeline_sync)
 
+    async def get_pipeline(self) -> CrowdAnalysisPipeline:
+        """Async helper to get or build the underlying CrowdAnalysisPipeline."""
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(self._executor, self._build_pipeline_sync)
+
     async def analyze(self, frame_bgr: np.ndarray, growth_ratio: Optional[float] = None) -> FrameResult:
         """Async-safe wrapper around the existing, unmodified
         `CrowdAnalysisPipeline.analyze()`. `growth_ratio` is passed straight

@@ -38,6 +38,10 @@ class ConnectionManager:
     def job_channel(job_id: str) -> str:
         return f"job:{job_id}"
 
+    @staticmethod
+    def feed_channel(feed_id: str) -> str:
+        return f"feed:{feed_id}"
+
     async def connect(self, websocket: WebSocket, channel: str) -> None:
         await websocket.accept()
         async with self._lock:

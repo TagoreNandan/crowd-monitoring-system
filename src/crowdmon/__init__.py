@@ -8,7 +8,21 @@ from .localization import LocalizationResult, extract_points
 from .overlay import draw_person_boxes, draw_stats_panel, render_video_overlay
 from .pipeline import CrowdAnalysisPipeline, FrameResult
 from .risk import RiskAssessment, RiskConfig, assess_risk
+from .streaming import (
+    CameraSource,
+    FileVideoSource,
+    Frame,
+    FrameSource,
+    InferenceWorker,
+    LatestFrameBuffer,
+    RTSPSource,
+    SourceMetadata,
+    StreamSession,
+    WorkerError,
+    WorkerResult,
+)
 from .system_status import GLOBAL_STATUS, StatusTracker, SystemStatus
+from .tracking import PersonTracker, TrackedPerson
 from .video import ProcessedFrame, StreamState, process_source
 
 __all__ = [
@@ -41,4 +55,16 @@ __all__ = [
     "ProcessedFrame",
     "StreamState",
     "process_source",
+    "FileVideoSource",
+    "CameraSource",
+    "RTSPSource",
+    "FrameSource",
+    "InferenceWorker",
+    "LatestFrameBuffer",
+    "SourceMetadata",
+    "StreamSession",
+    "WorkerError",
+    "WorkerResult",
+    "PersonTracker",
+    "TrackedPerson",
 ]

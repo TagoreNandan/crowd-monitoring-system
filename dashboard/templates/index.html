@@ -3,83 +3,310 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Crowd Monitoring System</title>
+  <title>CrowdVision AI — Enterprise Crowd Intelligence Platform</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <style>
-    :root { color-scheme: light dark; }
-    body { font-family: -apple-system, Segoe UI, Roboto, sans-serif; max-width: 760px; margin: 0 auto; padding: 24px; background: #0f1115; color: #eaeaea; }
-    h1 { font-size: 1.6rem; margin-bottom: 4px; }
-    .subtitle { color: #9aa0a6; margin-top: 0; margin-bottom: 24px; font-size: 0.9rem; }
-    .card { background: #171a21; border: 1px solid #2a2e37; border-radius: 10px; padding: 20px; margin-bottom: 20px; }
-    label { display: block; margin: 10px 0 4px; font-size: 0.9rem; color: #c8ccd2; }
-    input[type=file], input[type=number] { width: 100%; padding: 8px; border-radius: 6px; border: 1px solid #2a2e37; background: #0f1115; color: #eaeaea; box-sizing: border-box; }
-    button { margin-top: 14px; padding: 10px 18px; border-radius: 8px; border: none; background: #3d7fff; color: white; font-weight: 600; cursor: pointer; }
-    button:hover { background: #2f66d6; }
-    .error { color: #ff8a8a; margin-bottom: 12px; }
-    #status { font-size: 0.85rem; color: #9aa0a6; margin-top: 10px; }
-    .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
-    .ONLINE { background: #3ddc73; } .DEGRADED { background: #ffcc33; } .OFFLINE { background: #ff5555; }
-    .row { display: flex; gap: 16px; }
-    .row > div { flex: 1; }
-    footer { color: #6b7280; font-size: 0.78rem; margin-top: 30px; }
+    :root {
+      --bg-dark: #090b10;
+      --card-bg: #131722;
+      --card-border: #222938;
+      --accent-blue: #3b82f6;
+      --accent-hover: #2563eb;
+      --text-main: #f3f4f6;
+      --text-muted: #9ca3af;
+      --safe-bg: #064e3b; --safe-fg: #34d399;
+      --caution-bg: #78350f; --caution-fg: #fbbf24;
+      --warning-bg: #7c2d12; --warning-fg: #fb923c;
+      --critical-bg: #7f1d1d; --critical-fg: #f87171;
+    }
+    * { box-sizing: border-box; }
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif;
+      max-width: 1140px;
+      margin: 0 auto;
+      padding: 32px 24px;
+      background: var(--bg-dark);
+      color: var(--text-main);
+      line-height: 1.5;
+    }
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 24px;
+      padding-bottom: 20px;
+      border-bottom: 1px solid var(--card-border);
+    }
+    .brand { font-size: 1.5rem; font-weight: 800; letter-spacing: -0.02em; color: #ffffff; display: flex; align-items: center; gap: 10px; }
+    .brand span { background: linear-gradient(135deg, #3b82f6, #60a5fa); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+    .subtitle { color: var(--text-muted); font-size: 0.9rem; margin-top: 4px; }
+    .tabs {
+      display: flex;
+      gap: 12px;
+      margin-bottom: 24px;
+      border-bottom: 1px solid var(--card-border);
+      padding-bottom: 12px;
+    }
+    .tab-btn {
+      padding: 10px 20px;
+      border-radius: 8px;
+      background: #171c28;
+      color: var(--text-muted);
+      font-weight: 600;
+      cursor: pointer;
+      border: 1px solid var(--card-border);
+      transition: all 0.2s ease;
+    }
+    .tab-btn.active {
+      background: var(--accent-blue);
+      color: #ffffff;
+      border-color: var(--accent-blue);
+    }
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 12px;
+      padding: 24px;
+      margin-bottom: 24px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.25);
+    }
+    label { display: block; margin: 12px 0 6px; font-size: 0.82rem; font-weight: 600; color: #d1d5db; text-transform: uppercase; letter-spacing: 0.04em; }
+    input[type=file], input[type=number], input[type=text], select {
+      width: 100%;
+      padding: 10px 14px;
+      border-radius: 8px;
+      border: 1px solid var(--card-border);
+      background: #0d1117;
+      color: var(--text-main);
+      font-size: 0.95rem;
+    }
+    button {
+      margin-top: 16px;
+      padding: 12px 22px;
+      border-radius: 8px;
+      border: none;
+      background: var(--accent-blue);
+      color: white;
+      font-weight: 600;
+      font-size: 0.95rem;
+      cursor: pointer;
+    }
+    button:hover { background: var(--accent-hover); }
+    .error { color: #f87171; background: #450a0a; border: 1px solid #7f1d1d; padding: 12px 16px; border-radius: 8px; margin-bottom: 16px; }
+    .stat-pill {
+      display: inline-flex;
+      flex-direction: column;
+      background: #0d1117;
+      border: 1px solid var(--card-border);
+      padding: 10px 16px;
+      border-radius: 8px;
+      margin: 4px 8px 8px 0;
+      min-width: 120px;
+    }
+    .stat-pill .label { font-size: 0.72rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600; }
+    .stat-pill .value { font-size: 1.35rem; font-weight: 800; color: #ffffff; margin-top: 2px; }
+    .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
+    .ONLINE { background: #34d399; } .DEGRADED { background: #fbbf24; } .OFFLINE { background: #f87171; }
+    .badge { display: inline-block; padding: 4px 12px; border-radius: 999px; font-weight: 700; font-size: 0.85rem; }
+    .SAFE { background: var(--safe-bg); color: var(--safe-fg); }
+    .CAUTION { background: var(--caution-bg); color: var(--caution-fg); }
+    .WARNING { background: var(--warning-bg); color: var(--warning-fg); }
+    .CRITICAL { background: var(--critical-bg); color: var(--critical-fg); }
+    footer { color: var(--text-muted); font-size: 0.8rem; margin-top: 36px; padding-top: 16px; border-top: 1px solid var(--card-border); }
   </style>
 </head>
 <body>
-  <h1>👥 Crowd Monitoring &amp; Density Analysis</h1>
-  <p class="subtitle">Model: <strong>{{ model }}</strong> ({{ weights }} weights) &middot; density-map crowd counting, dynamic heatmaps, DBSCAN clustering, rule-based risk status.</p>
-
-  {% if error %}<p class="error">{{ error }}</p>{% endif %}
-
-  <div class="row">
-    <div class="card">
-      <h3>Analyze an image</h3>
-      <form action="{{ url_for('analyze_image') }}" method="post" enctype="multipart/form-data">
-        <label>Image file</label>
-        <input type="file" name="image" accept="image/*" required>
-        <button type="submit">Analyze image</button>
-      </form>
+  <header>
+    <div>
+      <div class="brand">👥 <span>CrowdVision AI</span></div>
+      <div class="subtitle">AI Crowd Monitoring &amp; Dense Crowd Analytics, Heatmaps, Spatial Clustering &amp; Risk Intelligence</div>
     </div>
+    <div id="system-badge" style="font-size:0.85rem; font-weight:600; color:var(--text-muted);">
+      <span class="dot OFFLINE" id="status-dot"></span><span id="status-text">Connecting...</span>
+    </div>
+  </header>
 
+  {% if error %}<div class="error">{{ error }}</div>{% endif %}
+
+  <div class="tabs">
+    <div class="tab-btn active" onclick="switchTab('image-tab', this)">📷 Image Analysis</div>
+    <div class="tab-btn" onclick="switchTab('video-tab', this)">🎬 Video Analysis</div>
+    <div class="tab-btn" onclick="switchTab('feed-tab', this)">📡 Real-Time Feed</div>
+  </div>
+
+  <!-- TAB 1: IMAGE ANALYSIS -->
+  <div id="image-tab" class="tab-content active">
     <div class="card">
-      <h3>Analyze a video</h3>
-      <form action="{{ url_for('analyze_video') }}" method="post" enctype="multipart/form-data">
-        <label>Video file</label>
-        <input type="file" name="video" accept="video/*" required>
-        <label>Frame skip (higher = faster, coarser)</label>
-        <input type="number" name="frame_skip" value="2" min="0">
-        <label>Max frames to analyze</label>
-        <input type="number" name="max_frames" value="150" min="1">
-        <button type="submit">Analyze video</button>
+      <h3 style="margin-top:0;">Image Crowd Analysis</h3>
+      <p style="color:var(--text-muted); font-size:0.9rem;">Upload any static scene or crowd image to run density map regression, point localization, DBSCAN spatial clustering, and automated risk scoring.</p>
+      <form action="{{ url_for('analyze_image') }}" method="post" enctype="multipart/form-data">
+        <label>Select Image File</label>
+        <input type="file" name="image" accept="image/*" required>
+        <button type="submit">Analyze Image &rarr;</button>
       </form>
     </div>
   </div>
 
+  <!-- TAB 2: VIDEO ANALYSIS -->
+  <div id="video-tab" class="tab-content">
+    <div class="card">
+      <h3 style="margin-top:0;">Video File Processing</h3>
+      <p style="color:var(--text-muted); font-size:0.9rem;">Process recorded video clips with incremental decoding, adaptive sampling, and browser-compatible H.264 video rendering.</p>
+      <form action="{{ url_for('analyze_video') }}" method="post" enctype="multipart/form-data">
+        <label>Select Video File</label>
+        <input type="file" name="video" accept="video/*" required>
+        <div style="display:flex; gap:16px; margin-top:8px;">
+          <div style="flex:1;">
+            <label>Frame Skip</label>
+            <input type="number" name="frame_skip" value="2" min="0">
+          </div>
+          <div style="flex:1;">
+            <label>Max Frames</label>
+            <input type="number" name="max_frames" value="150" min="1">
+          </div>
+        </div>
+        <button type="submit">Analyze Video &rarr;</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- TAB 3: REAL-TIME FEED -->
+  <div id="feed-tab" class="tab-content">
+    <div class="card">
+      <h3 style="margin-top:0;">Real-Time Feed Orchestrator</h3>
+      <p style="color:var(--text-muted); font-size:0.9rem;">Stream live feeds from local cameras, RTSP/RTMP endpoints, or continuous sample video streams using the bounded latest-frame inference engine.</p>
+      <div style="display:flex; gap:16px; align-items:flex-end;">
+        <div style="flex:1;">
+          <label>Source Type</label>
+          <select id="feed-source-type">
+            <option value="sample">Continuous Sample Video</option>
+            <option value="camera">Local Camera Device (index 0)</option>
+            <option value="rtsp">RTSP / RTMP Network Stream</option>
+          </select>
+        </div>
+        <div style="flex:2;">
+          <label>Source URI / Index (Optional)</label>
+          <input type="text" id="feed-source-uri" placeholder="e.g. 0 for webcam or rtsp://192.168.1.100/stream">
+        </div>
+        <div>
+          <button type="button" onclick="startLiveFeed()" style="margin-top:0;">Start Live Feed</button>
+        </div>
+      </div>
+
+      <div id="feed-active-panel" style="margin-top:24px; display:none;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+          <h4 style="margin:0;">Active Stream Session: <span id="feed-id-label" style="color:var(--accent-blue);"></span></h4>
+          <button type="button" onclick="stopLiveFeed()" style="background:#7f1d1d; margin-top:0; padding:8px 16px;">Stop Feed</button>
+        </div>
+        <div id="feed-live-stats" style="display:flex; flex-wrap:wrap; margin-top:12px;"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SYSTEM STATUS CARD -->
   <div class="card">
-    <h3>System status</h3>
-    <div id="status">loading...</div>
+    <h4 style="margin-top:0; margin-bottom:12px; color:var(--text-muted); text-transform:uppercase; font-size:0.8rem; letter-spacing:0.04em;">System Status &amp; Model Runtime</h4>
+    <div id="status-detail">Loading system status...</div>
   </div>
 
   <footer>
-    Crowd status levels (SAFE / CAUTION / WARNING / CRITICAL) come from a transparent rule-based heuristic over
-    count, relative density, and cluster concentration &mdash; not a validated stampede-prediction model. See README for details.
+    <strong>CrowdVision AI Risk Assessment:</strong> Risk categories (SAFE / CAUTION / WARNING / CRITICAL) are calculated using a transparent multi-metric heuristic over density estimation, relative spatial concentration, and growth trends.
   </footer>
 
   <script>
+    function switchTab(tabId, btn) {
+      document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+      document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
+      document.getElementById(tabId).classList.add('active');
+      btn.classList.add('active');
+    }
+
     async function refreshStatus() {
       try {
         const res = await fetch("{{ url_for('status') }}");
         const s = await res.json();
-        document.getElementById('status').innerHTML =
-          `<span class="dot ${s.state}"></span><strong>${s.state}</strong> &middot; ` +
-          `model_loaded=${s.model_loaded} &middot; device=${s.device || 'n/a'} &middot; ` +
-          `frames_processed=${s.frames_processed} &middot; fps=${s.fps.toFixed(2)} &middot; ` +
-          `last_latency_ms=${s.last_latency_ms ? s.last_latency_ms.toFixed(1) : 'n/a'} &middot; ` +
-          `errors=${s.error_count}`;
+        const dot = document.getElementById('status-dot');
+        const text = document.getElementById('status-text');
+        dot.className = `dot ${s.state}`;
+        text.innerText = `${s.state} | Model: ${s.model_name} (${s.device || 'cpu'})`;
+
+        document.getElementById('status-detail').innerHTML =
+          `<div style="display:flex; flex-wrap:wrap;">` +
+            `<div class="stat-pill"><span class="label">State</span><span class="value">${s.state}</span></div>` +
+            `<div class="stat-pill"><span class="label">Model Loaded</span><span class="value">${s.model_loaded}</span></div>` +
+            `<div class="stat-pill"><span class="label">Device</span><span class="value">${s.device || 'n/a'}</span></div>` +
+            `<div class="stat-pill"><span class="label">Frames Processed</span><span class="value">${s.frames_processed}</span></div>` +
+            `<div class="stat-pill"><span class="label">FPS</span><span class="value">${s.fps ? s.fps.toFixed(1) : 'n/a'}</span></div>` +
+            `<div class="stat-pill"><span class="label">Latency</span><span class="value">${s.last_latency_ms ? s.last_latency_ms.toFixed(0) + ' ms' : 'n/a'}</span></div>` +
+            `<div class="stat-pill"><span class="label">Errors</span><span class="value">${s.error_count}</span></div>` +
+          `</div>`;
       } catch (e) {
-        document.getElementById('status').innerText = 'status endpoint unreachable';
+        document.getElementById('status-text').innerText = 'Backend Unreachable';
       }
     }
+
+    let activeFeedId = null;
+    let feedPollInterval = null;
+
+    async function startLiveFeed() {
+      const stype = document.getElementById('feed-source-type').value;
+      const suri = document.getElementById('feed-source-uri').value;
+      try {
+        const res = await fetch('/api/feeds', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ source_type: stype, source_uri: suri || null, loop: true })
+        });
+        if (!res.ok) throw new Error('Failed to start feed');
+        const data = await res.json();
+        activeFeedId = data.feed_id;
+        document.getElementById('feed-id-label').innerText = data.feed_id;
+        document.getElementById('feed-active-panel').style.display = 'block';
+
+        if (feedPollInterval) clearInterval(feedPollInterval);
+        feedPollInterval = setInterval(pollFeedMetrics, 1000);
+      } catch (err) {
+        alert('Error starting live feed: ' + err.message);
+      }
+    }
+
+    async function pollFeedMetrics() {
+      if (!activeFeedId) return;
+      try {
+        const res = await fetch('/api/feeds/' + activeFeedId);
+        if (!res.ok) return;
+        const f = await res.json();
+        const m = f.latest_metrics;
+        let html = `<div class="stat-pill"><span class="label">Status</span><span class="value">${f.status}</span></div>` +
+                   `<div class="stat-pill"><span class="label">Produced</span><span class="value">${f.frames_produced}</span></div>`;
+        if (m) {
+          html += `<div class="stat-pill"><span class="label">Est. Count</span><span class="value">${m.estimated_count}</span></div>` +
+                  `<div class="stat-pill"><span class="label">Density</span><span class="value">${m.density}</span></div>` +
+                  `<div class="stat-pill"><span class="label">Risk</span><span class="value"><span class="badge ${m.risk_status}">${m.risk_status}</span></span></div>` +
+                  `<div class="stat-pill"><span class="label">Latency</span><span class="value">${m.latency_ms} ms</span></div>` +
+                  `<div class="stat-pill"><span class="label">FPS</span><span class="value">${m.fps || 'n/a'}</span></div>` +
+                  `<div class="stat-pill"><span class="label">Dropped</span><span class="value">${m.frames_dropped}</span></div>`;
+        }
+        document.getElementById('feed-live-stats').innerHTML = html;
+      } catch (e) {}
+    }
+
+    async function stopLiveFeed() {
+      if (!activeFeedId) return;
+      try {
+        await fetch('/api/feeds/' + activeFeedId + '/stop', { method: 'POST' });
+        if (feedPollInterval) clearInterval(feedPollInterval);
+        document.getElementById('feed-active-panel').style.display = 'none';
+        activeFeedId = null;
+      } catch (e) {}
+    }
+
     refreshStatus();
-    setInterval(refreshStatus, 4000);
+    setInterval(refreshStatus, 3000);
   </script>
 </body>
 </html>

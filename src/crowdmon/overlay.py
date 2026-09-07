@@ -23,15 +23,24 @@ _TEXT_FG = (255, 255, 255)
 _TEXT_BG = (0, 0, 0)
 
 
-def draw_person_boxes(frame_bgr: np.ndarray, detections: Iterable[PersonDetection]) -> np.ndarray:
-    """Draw one rectangle + confidence label per real detection. Returns a
-    new array -- `frame_bgr` itself is never modified."""
+def draw_person_boxes(frame_bgr: np.ndarray, detections: Iterable[Any]) -> np.ndarray:
+    """Draw one rectangle + confidence/track label per real detection or tracked person.
+    Returns a new array -- `frame_bgr` itself is never modified."""
     out = frame_bgr.copy()
     for det in detections:
-        cv2.rectangle(out, (det.x1, det.y1), (det.x2, det.y2), _BOX_COLOR, 2)
-        label = f"{det.confidence * 100:.0f}%"
-        label_y = det.y1 - 6 if det.y1 - 6 > 10 else det.y1 + 14
-        cv2.putText(out, label, (det.x1, label_y), cv2.FONT_HERSHEY_SIMPLEX, 0.45, _BOX_COLOR, 1, cv2.LINE_AA)
+        x1, y1, x2, y2 = det.x1, det.y1, det.x2, det.y2
+        cv2.rectangle(out, (x1, y1), (x2, y2), _BOX_COLOR, 2)
+
+        if hasattr(det, "track_id"):
+            label = f"ID #{det.track_id} ({det.confidence * 100:.0f}%)"
+            if hasattr(det, "history") and len(det.history) > 1:
+                pts = np.array(det.history, dtype=np.int32).reshape((-1, 1, 2))
+                cv2.polylines(out, [pts], isClosed=False, color=(0, 255, 255), thickness=2)
+        else:
+            label = f"{det.confidence * 100:.0f}%"
+
+        label_y = y1 - 6 if y1 - 6 > 10 else y1 + 14
+        cv2.putText(out, label, (x1, label_y), cv2.FONT_HERSHEY_SIMPLEX, 0.45, _BOX_COLOR, 1, cv2.LINE_AA)
     return out
 
 

@@ -34,6 +34,8 @@ class WSEventType(str, Enum):
     JOB_PROGRESS = "job.progress"
     JOB_COMPLETED = "job.completed"
     JOB_ERROR = "job.error"
+    FEED_STATUS = "feed.status"
+    FEED_PROGRESS = "feed.progress"
     PING = "ping"
     PONG = "pong"
     ERROR = "error"

@@ -24,7 +24,10 @@ import cv2
 
 from crowdmon.detection import PersonDetection, PersonDetector
 from crowdmon.overlay import render_video_overlay
+from crowdmon.streaming import FileVideoSource
+from crowdmon.tracking import PersonTracker
 from crowdmon.video import StreamState
+from crowdmon.video_encoding import ensure_browser_compatible_video
 
 from ..pipeline_runtime import PipelineRuntime
 from ..schemas.jobs import VideoFrameMetrics, VideoJobSummary
@@ -157,11 +160,12 @@ async def run_video_job(
     record = job_store.get(job_id)
     source_description = record.source_description if record is not None else ""
 
-    cap: Optional[cv2.VideoCapture] = None
+    source: Optional[FileVideoSource] = None
     annotated_writer = None
     annotated_path = video_path.with_name(f"{video_path.stem}_annotated.mp4")
     started = time.time()
     state = StreamState()
+    tracker = PersonTracker()
     frames_processed = 0
     total_frames: Optional[int] = None
     latest_metrics: Optional[VideoFrameMetrics] = None
@@ -182,30 +186,29 @@ async def run_video_job(
             ),
         )
 
-        cap = await runtime.run_sync(cv2.VideoCapture, str(video_path))
-        is_opened = await runtime.run_sync(cap.isOpened)
-        if not is_opened:
-            raise RuntimeError(f"Could not open uploaded video '{video_path.name}': unsupported or corrupt file.")
+        source = FileVideoSource(video_path)
+        try:
+            metadata = await runtime.run_sync(source.open)
+        except RuntimeError as exc:
+            raise RuntimeError(f"Could not open uploaded video '{video_path.name}': {exc}") from exc
 
-        raw_total = await runtime.run_sync(cap.get, cv2.CAP_PROP_FRAME_COUNT)
-        if raw_total and raw_total > 0:
-            total_frames = int(raw_total)
+        total_frames = metadata.total_frames
+        output_fps = metadata.fps if metadata.fps else _DEFAULT_OUTPUT_FPS
 
-        raw_fps = await runtime.run_sync(cap.get, cv2.CAP_PROP_FPS)
-        output_fps = raw_fps if raw_fps and raw_fps > 0 else _DEFAULT_OUTPUT_FPS
-
+        frame_iter = await runtime.run_sync(source.frames)
         while True:
-            ok, frame = await runtime.run_sync(cap.read)
-            if not ok:
+            frame = await runtime.run_sync(next, frame_iter, None)
+            if frame is None:
                 break
 
-            result = await runtime.analyze(frame, growth_ratio=state.growth_ratio())
+            result = await runtime.analyze(frame.frame_bgr, growth_ratio=state.growth_ratio())
             state.update(result.inference.count)
             frames_processed += 1
 
             detections, visible_count, detector_broken = await _detect_persons(
-                runtime, person_detector, frame, job_id, detector_broken
+                runtime, person_detector, frame.frame_bgr, job_id, detector_broken
             )
+            tracked_boxes = tracker.update(detections) if detections else []
 
             latest_metrics = _build_metrics(
                 frame_number=frames_processed,
@@ -216,7 +219,11 @@ async def run_video_job(
                 visible_count=visible_count,
             )
 
-            annotated = render_video_overlay(frame, detections, **latest_metrics.model_dump())
+            annotated = render_video_overlay(
+                frame.frame_bgr,
+                tracked_boxes if detections else detections,
+                **latest_metrics.model_dump(),
+            )
             if annotated_writer is None:
                 h, w = annotated.shape[:2]
                 fourcc = cv2.VideoWriter_fourcc(*"mp4v")
@@ -246,6 +253,15 @@ async def run_video_job(
         if frames_processed == 0 or latest_metrics is None:
             raise RuntimeError("No frames could be decoded from the uploaded video.")
 
+        if annotated_writer is not None:
+            await runtime.run_sync(annotated_writer.release)
+            annotated_writer = None
+            if annotated_path.exists():
+                try:
+                    await runtime.run_sync(ensure_browser_compatible_video, annotated_path)
+                except Exception:
+                    logger.exception("Failed to transcode annotated video for job %s", job_id)
+
         summary = VideoJobSummary(
             frames_processed=frames_processed,
             total_frames=total_frames,
@@ -274,9 +290,9 @@ async def run_video_job(
         except Exception:
             logger.exception("Failed to publish job.error for job %s", job_id)
     finally:
-        if cap is not None:
+        if source is not None:
             try:
-                await runtime.run_sync(cap.release)
+                await runtime.run_sync(source.close)
             except Exception:
                 logger.exception("Failed to release VideoCapture for job %s", job_id)
         if annotated_writer is not None:

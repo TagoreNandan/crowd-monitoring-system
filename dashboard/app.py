@@ -31,6 +31,7 @@ from crowdmon.config import load_config, pipeline_kwargs_from_config  # noqa: E4
 from crowdmon.pipeline import CrowdAnalysisPipeline  # noqa: E402
 from crowdmon.system_status import GLOBAL_STATUS  # noqa: E402
 from crowdmon.video import process_source  # noqa: E402
+from crowdmon.video_encoding import ensure_browser_compatible_video  # noqa: E402
 
 RESULTS_DIR = REPO_ROOT / "dashboard" / "static" / "results"
 RESULTS_DIR.mkdir(parents=True, exist_ok=True)
@@ -165,6 +166,10 @@ def analyze_video():
 
     if writer is not None:
         writer.release()
+        try:
+            ensure_browser_compatible_video(out_path)
+        except Exception as exc:
+            print(f"Warning: ffmpeg conversion failed for {out_path}: {exc}")
 
     summary = {
         "frames_analyzed": len(history),

@@ -192,10 +192,11 @@ def test_video_job_visible_count_stays_distinct_from_estimated_count(monkeypatch
 
 
 def test_video_job_visible_count_is_null_when_detector_unavailable(monkeypatch, client):
-    """No MobileNet-SSD model files in this test environment -> visible_count
-    must be reported as `null` (unavailable), never a fabricated 0, while
+    """Simulates an unavailable PersonDetector -> visible_count must be
+    reported as `null` (unavailable), never a fabricated 0, while
     estimated_count (DM-Count) is unaffected."""
-    assert client.app.state.app_state.person_detector.is_available is False  # no weight files in this env
+    detector = client.app.state.app_state.person_detector
+    monkeypatch.setattr(type(detector), "is_available", False)
 
     _patch_video_pipeline(monkeypatch, client, n_frames=2)
     files = {"video": ("clip.mp4", b"fake video bytes", "video/mp4")}

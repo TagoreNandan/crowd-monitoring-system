@@ -125,3 +125,18 @@ async def ws_job(websocket: WebSocket, job_id: str) -> None:
         data=JobStatusData(status=record.status.value, progress=record.progress, message=record.message).model_dump(),
     )
     await _serve(websocket, manager, channel, job_id=job_id, initial_envelopes=[ack, status_envelope])
+
+
+@router.websocket("/ws/feeds/{feed_id}")
+async def ws_feed(websocket: WebSocket, feed_id: str) -> None:
+    app_state = websocket.app.state.app_state
+    manager: ConnectionManager = app_state.connection_manager
+
+    channel = manager.feed_channel(feed_id)
+    ack = WSEnvelope(type=WSEventType.CONNECTION_ACK, job_id=feed_id, data=ConnectionAckData(channel=channel).model_dump())
+    status_envelope = WSEnvelope(
+        type=WSEventType.FEED_STATUS,
+        job_id=feed_id,
+        data={"feed_id": feed_id, "status": "connected"},
+    )
+    await _serve(websocket, manager, channel, job_id=feed_id, initial_envelopes=[ack, status_envelope])

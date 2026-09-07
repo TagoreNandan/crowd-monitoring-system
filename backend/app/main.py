@@ -19,6 +19,7 @@ from .errors import install_exception_handlers
 from .logging_config import configure_logging
 from .pipeline_runtime import build_pipeline_kwargs
 from .routers import config as config_router
+from .routers import feeds as feeds_router
 from .routers import health as health_router
 from .routers import jobs as jobs_router
 from .routers import status as status_router
@@ -80,6 +81,7 @@ def create_app() -> FastAPI:
     app.include_router(status_router.router)
     app.include_router(config_router.router)
     app.include_router(jobs_router.router)
+    app.include_router(feeds_router.router)
     app.include_router(ws_router)
 
     return app
