@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Crowd Monitoring System{% endblock %}</title>
+  <style>
+    :root { color-scheme: light dark; }
+    body { font-family: -apple-system, Segoe UI, Roboto, sans-serif; max-width: 1000px; margin: 0 auto; padding: 24px; background: #0f1115; color: #eaeaea; }
+    a { color: #6fb6ff; }
+    h1 { font-size: 1.5rem; margin-bottom: 4px; }
+    .subtitle { color: #9aa0a6; margin-top: 0; margin-bottom: 24px; font-size: 0.9rem; }
+    .card { background: #171a21; border: 1px solid #2a2e37; border-radius: 10px; padding: 20px; margin-bottom: 20px; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; }
+    .grid img { width: 100%; border-radius: 8px; border: 1px solid #2a2e37; }
+    .grid figcaption { font-size: 0.8rem; color: #9aa0a6; margin-top: 6px; text-align: center; }
+    label { display: block; margin: 10px 0 4px; font-size: 0.9rem; color: #c8ccd2; }
+    input[type=file], input[type=number] { width: 100%; padding: 8px; border-radius: 6px; border: 1px solid #2a2e37; background: #0f1115; color: #eaeaea; }
+    button { margin-top: 14px; padding: 10px 18px; border-radius: 8px; border: none; background: #3d7fff; color: white; font-weight: 600; cursor: pointer; }
+    button:hover { background: #2f66d6; }
+    .stat { display: inline-block; margin: 4px 12px 4px 0; }
+    .stat .label { font-size: 0.75rem; color: #9aa0a6; display: block; }
+    .stat .value { font-size: 1.3rem; font-weight: 700; }
+    .badge { display: inline-block; padding: 4px 12px; border-radius: 999px; font-weight: 700; font-size: 0.85rem; }
+    .SAFE { background: #16532b; color: #7fe8a0; }
+    .CAUTION { background: #5a4d10; color: #ffe27a; }
+    .WARNING { background: #5c3410; color: #ffb066; }
+    .CRITICAL { background: #5c1414; color: #ff8a8a; }
+    table { border-collapse: collapse; width: 100%; font-size: 0.85rem; }
+    td, th { padding: 4px 8px; text-align: left; border-bottom: 1px solid #2a2e37; }
+    .error { color: #ff8a8a; margin-bottom: 12px; }
+    nav { margin-bottom: 18px; font-size: 0.9rem; }
+  </style>
+</head>
+<body>
+  <nav><a href="{{ url_for('index') }}">&larr; Upload another file</a></nav>
+  {% block content %}{% endblock %}
+</body>
+</html>

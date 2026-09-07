@@ -1,0 +1,23 @@
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
+build/
+dist/
+
+# Pretrained weights are downloaded on demand (see scripts/download_weights.py);
+# do not commit large binary checkpoints to git.
+weights/*.pth
+weights/*.part
+
+# Local run outputs / uploads.
+output/
+dashboard/static/results/
+dashboard/static/uploads/
+examples/*.jpg
+examples/*.jpeg
+examples/*.png
+examples/*.mp4
+
+.pytest_cache/
+.DS_Store

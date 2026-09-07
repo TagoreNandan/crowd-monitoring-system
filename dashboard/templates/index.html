@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Crowd Monitoring System</title>
+  <style>
+    :root { color-scheme: light dark; }
+    body { font-family: -apple-system, Segoe UI, Roboto, sans-serif; max-width: 760px; margin: 0 auto; padding: 24px; background: #0f1115; color: #eaeaea; }
+    h1 { font-size: 1.6rem; margin-bottom: 4px; }
+    .subtitle { color: #9aa0a6; margin-top: 0; margin-bottom: 24px; font-size: 0.9rem; }
+    .card { background: #171a21; border: 1px solid #2a2e37; border-radius: 10px; padding: 20px; margin-bottom: 20px; }
+    label { display: block; margin: 10px 0 4px; font-size: 0.9rem; color: #c8ccd2; }
+    input[type=file], input[type=number] { width: 100%; padding: 8px; border-radius: 6px; border: 1px solid #2a2e37; background: #0f1115; color: #eaeaea; box-sizing: border-box; }
+    button { margin-top: 14px; padding: 10px 18px; border-radius: 8px; border: none; background: #3d7fff; color: white; font-weight: 600; cursor: pointer; }
+    button:hover { background: #2f66d6; }
+    .error { color: #ff8a8a; margin-bottom: 12px; }
+    #status { font-size: 0.85rem; color: #9aa0a6; margin-top: 10px; }
+    .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
+    .ONLINE { background: #3ddc73; } .DEGRADED { background: #ffcc33; } .OFFLINE { background: #ff5555; }
+    .row { display: flex; gap: 16px; }
+    .row > div { flex: 1; }
+    footer { color: #6b7280; font-size: 0.78rem; margin-top: 30px; }
+  </style>
+</head>
+<body>
+  <h1>👥 Crowd Monitoring &amp; Density Analysis</h1>
+  <p class="subtitle">Model: <strong>{{ model }}</strong> ({{ weights }} weights) &middot; density-map crowd counting, dynamic heatmaps, DBSCAN clustering, rule-based risk status.</p>
+
+  {% if error %}<p class="error">{{ error }}</p>{% endif %}
+
+  <div class="row">
+    <div class="card">
+      <h3>Analyze an image</h3>
+      <form action="{{ url_for('analyze_image') }}" method="post" enctype="multipart/form-data">
+        <label>Image file</label>
+        <input type="file" name="image" accept="image/*" required>
+        <button type="submit">Analyze image</button>
+      </form>
+    </div>
+
+    <div class="card">
+      <h3>Analyze a video</h3>
+      <form action="{{ url_for('analyze_video') }}" method="post" enctype="multipart/form-data">
+        <label>Video file</label>
+        <input type="file" name="video" accept="video/*" required>
+        <label>Frame skip (higher = faster, coarser)</label>
+        <input type="number" name="frame_skip" value="2" min="0">
+        <label>Max frames to analyze</label>
+        <input type="number" name="max_frames" value="150" min="1">
+        <button type="submit">Analyze video</button>
+      </form>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>System status</h3>
+    <div id="status">loading...</div>
+  </div>
+
+  <footer>
+    Crowd status levels (SAFE / CAUTION / WARNING / CRITICAL) come from a transparent rule-based heuristic over
+    count, relative density, and cluster concentration &mdash; not a validated stampede-prediction model. See README for details.
+  </footer>
+
+  <script>
+    async function refreshStatus() {
+      try {
+        const res = await fetch("{{ url_for('status') }}");
+        const s = await res.json();
+        document.getElementById('status').innerHTML =
+          `<span class="dot ${s.state}"></span><strong>${s.state}</strong> &middot; ` +
+          `model_loaded=${s.model_loaded} &middot; device=${s.device || 'n/a'} &middot; ` +
+          `frames_processed=${s.frames_processed} &middot; fps=${s.fps.toFixed(2)} &middot; ` +
+          `last_latency_ms=${s.last_latency_ms ? s.last_latency_ms.toFixed(1) : 'n/a'} &middot; ` +
+          `errors=${s.error_count}`;
+      } catch (e) {
+        document.getElementById('status').innerText = 'status endpoint unreachable';
+      }
+    }
+    refreshStatus();
+    setInterval(refreshStatus, 4000);
+  </script>
+</body>
+</html>

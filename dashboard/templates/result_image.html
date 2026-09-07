@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}Image result{% endblock %}
+{% block content %}
+  <h1>Image analysis result</h1>
+  <p class="subtitle">Model: {{ model }} ({{ weights }})</p>
+
+  <div class="card">
+    <div class="stat"><span class="label">Estimated count</span><span class="value">{{ summary.count }}</span></div>
+    <div class="stat"><span class="label">Clusters</span><span class="value">{{ summary.n_clusters }}</span></div>
+    <div class="stat"><span class="label">Largest cluster</span><span class="value">{{ summary.largest_cluster }}</span></div>
+    <div class="stat"><span class="label">Localization points</span><span class="value">{{ summary.n_points }}</span></div>
+    <div class="stat"><span class="label">Latency</span><span class="value">{{ summary.latency_ms }} ms</span></div>
+    <div class="stat"><span class="label">Device</span><span class="value">{{ summary.device }}</span></div>
+    <div class="stat">
+      <span class="label">Risk status</span>
+      <span class="badge {{ summary.risk_status }}">{{ summary.risk_status }} ({{ summary.risk_score }})</span>
+    </div>
+    <p style="color:#9aa0a6; margin-top:10px;">{{ summary.risk_explanation }}</p>
+    {% if summary.warnings %}
+      <p class="error">Warnings: {{ summary.warnings | join(", ") }}</p>
+    {% endif %}
+  </div>
+
+  <div class="card">
+    <div class="grid">
+      <figure>
+        <img src="{{ url_for('static', filename='results/' + run_id + '/original.jpg') }}">
+        <figcaption>Original input</figcaption>
+      </figure>
+      <figure>
+        <img src="{{ url_for('static', filename='results/' + run_id + '/heatmap.jpg') }}">
+        <figcaption>Density / heatmap (model output)</figcaption>
+      </figure>
+      <figure>
+        <img src="{{ url_for('static', filename='results/' + run_id + '/overlay.jpg') }}">
+        <figcaption>Heatmap overlay</figcaption>
+      </figure>
+      <figure>
+        <img src="{{ url_for('static', filename='results/' + run_id + '/points.jpg') }}">
+        <figcaption>Approximate localization points (density-map peaks)</figcaption>
+      </figure>
+    </div>
+  </div>
+
+  <p><a href="{{ url_for('static', filename='results/' + run_id + '/summary.json') }}">Raw JSON result</a></p>
+{% endblock %}

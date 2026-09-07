@@ -1,0 +1,35 @@
+# Default configuration for the crowd monitoring pipeline.
+# Override with --config path/to/your.yaml on the CLI scripts, or
+# CROWDMON_CONFIG=path/to/your.yaml for the dashboard.
+
+model:
+  name: DM-Count       # DM-Count (recommended) or CSRNet
+  weights: QNRF         # SHA (dense), SHB (sparse), QNRF (best default / extreme density)
+  device: auto           # auto, cpu, cuda, mps
+  max_side: 1024          # input images/frames are downscaled so their longest side is <= this
+
+clustering:
+  eps_px: 40             # DBSCAN neighborhood radius, in pixels, at original image resolution
+  min_samples: 3          # minimum points to form a cluster
+
+risk:
+  count_caution: 30
+  count_warning: 80
+  count_critical: 150
+
+  density_caution: 0.6
+  density_warning: 1.3
+  density_critical: 2.2
+
+  concentration_caution: 0.35
+  concentration_warning: 0.55
+  concentration_critical: 0.75
+
+  growth_caution: 0.15
+  growth_warning: 0.35
+  growth_critical: 0.60
+
+  weight_count: 0.35
+  weight_density: 0.25
+  weight_concentration: 0.20
+  weight_growth: 0.20
