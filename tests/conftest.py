@@ -17,6 +17,19 @@ def sample_image():
 
 
 @pytest.fixture(scope="session")
+def counter():
+    """Real CrowdCounter (DM-Count/SHA, CPU) for tests that exercise the model
+    directly rather than through the full pipeline. Same download-if-missing /
+    skip-if-offline behavior as the `pipeline` fixture below."""
+    from crowdmon.inference import CrowdCounter
+
+    try:
+        return CrowdCounter(model_name="DM-Count", model_weights="SHA", device="cpu", download=True)
+    except Exception as exc:
+        pytest.skip(f"Could not obtain DM-Count/SHA pretrained weights (offline runner?): {exc}")
+
+
+@pytest.fixture(scope="session")
 def pipeline():
     """Real pipeline using DM-Count/SHA weights, forced to CPU for deterministic,
     hardware-independent test runs. Downloads the checkpoint if it isn't already
