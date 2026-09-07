@@ -18,8 +18,14 @@ def sample_image():
 
 @pytest.fixture(scope="session")
 def pipeline():
-    """Real pipeline using the already-cached DM-Count/SHA weights, forced to CPU
-    for deterministic, dependency-free test runs."""
+    """Real pipeline using DM-Count/SHA weights, forced to CPU for deterministic,
+    hardware-independent test runs. Downloads the checkpoint if it isn't already
+    cached locally (e.g. a fresh checkout/CI runner); skips these integration
+    tests rather than hard-failing the whole suite if that download can't
+    succeed (no network access from the runner)."""
     from crowdmon.pipeline import CrowdAnalysisPipeline
 
-    return CrowdAnalysisPipeline(model_name="DM-Count", model_weights="SHA", device="cpu", download=False)
+    try:
+        return CrowdAnalysisPipeline(model_name="DM-Count", model_weights="SHA", device="cpu", download=True)
+    except Exception as exc:
+        pytest.skip(f"Could not obtain DM-Count/SHA pretrained weights (offline runner?): {exc}")

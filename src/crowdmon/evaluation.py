@@ -93,10 +93,15 @@ def evaluate_density_maps(pred_density: np.ndarray, gt_density: np.ndarray) -> E
         note = "Density maps are (near-)constant; PSNR/SSIM are undefined."
     else:
         psnr = float(peak_signal_noise_ratio(g, p, data_range=data_range))
-        win_size = min(7, min(p.shape) - (1 - min(p.shape) % 2))
-        win_size = max(win_size, 3) if win_size % 2 == 1 else max(win_size - 1, 3)
-        ssim = float(structural_similarity(g, p, data_range=data_range, win_size=win_size))
-        note = "Computed against a supplied ground-truth density map."
+        min_dim = min(p.shape)
+        if min_dim < 3:
+            ssim = None
+            note = "Density maps are too small (<3px on one side) for a meaningful SSIM window; PSNR only."
+        else:
+            # structural_similarity requires win_size odd and <= the smallest map dimension.
+            win_size = min(7, min_dim if min_dim % 2 == 1 else min_dim - 1)
+            ssim = float(structural_similarity(g, p, data_range=data_range, win_size=win_size))
+            note = "Computed against a supplied ground-truth density map."
 
     return EvaluationResult(mae=mae, rmse=rmse, psnr=psnr, ssim=ssim, pred_count=pred_count, gt_count=gt_count, note=note)
 

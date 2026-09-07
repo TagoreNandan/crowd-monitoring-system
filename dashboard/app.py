@@ -22,6 +22,7 @@ from pathlib import Path
 
 import cv2
 from flask import Flask, jsonify, render_template, request, send_from_directory, url_for
+from werkzeug.utils import secure_filename
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "src"))
@@ -85,7 +86,7 @@ def analyze_image():
     run_dir = RESULTS_DIR / run_id
     run_dir.mkdir(parents=True, exist_ok=True)
 
-    upload_path = UPLOAD_DIR / f"{run_id}_{file.filename}"
+    upload_path = UPLOAD_DIR / f"{run_id}_{secure_filename(file.filename)}"
     file.save(upload_path)
 
     frame = cv2.imread(str(upload_path))
@@ -136,7 +137,7 @@ def analyze_video():
     run_id = uuid.uuid4().hex[:10]
     run_dir = RESULTS_DIR / run_id
     run_dir.mkdir(parents=True, exist_ok=True)
-    upload_path = UPLOAD_DIR / f"{run_id}_{file.filename}"
+    upload_path = UPLOAD_DIR / f"{run_id}_{secure_filename(file.filename)}"
     file.save(upload_path)
 
     frame_skip = int(request.form.get("frame_skip", 2))

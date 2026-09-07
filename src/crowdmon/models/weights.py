@@ -82,6 +82,13 @@ def ensure_weights(model_name: str, model_weights: str, progress: bool = True) -
         if progress and total:
             print()
 
+    if total and downloaded != total:
+        tmp_path.unlink(missing_ok=True)
+        raise IOError(
+            f"Incomplete download of {file_name}: got {downloaded} of {total} bytes. "
+            f"Try again -- the partial file was removed."
+        )
+
     tmp_path.rename(path)
     logger.info("Saved %s (%.1f MB)", path, path.stat().st_size / 1e6)
     return path
