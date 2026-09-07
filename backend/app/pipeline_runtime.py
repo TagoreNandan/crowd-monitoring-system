@@ -11,11 +11,12 @@ from __future__ import annotations
 
 import asyncio
 import dataclasses
+import functools
 import logging
 import os
 import threading
 from concurrent.futures import ThreadPoolExecutor
-from typing import Any, Optional
+from typing import Any, Callable, Optional, TypeVar
 
 import numpy as np
 
@@ -24,6 +25,8 @@ from crowdmon.device import device_name
 from crowdmon.pipeline import CrowdAnalysisPipeline, FrameResult
 
 logger = logging.getLogger(__name__)
+
+_T = TypeVar("_T")
 
 
 def build_pipeline_kwargs() -> dict[str, Any]:
@@ -99,12 +102,25 @@ class PipelineRuntime:
         loop = asyncio.get_running_loop()
         await loop.run_in_executor(self._executor, self._build_pipeline_sync)
 
-    async def analyze(self, frame_bgr: np.ndarray) -> FrameResult:
+    async def analyze(self, frame_bgr: np.ndarray, growth_ratio: Optional[float] = None) -> FrameResult:
         """Async-safe wrapper around the existing, unmodified
-        `CrowdAnalysisPipeline.analyze()`."""
+        `CrowdAnalysisPipeline.analyze()`. `growth_ratio` is passed straight
+        through to it -- it already accepts this for video's trend-based
+        risk signal (see `crowdmon.video.process_source`); the video job
+        runner supplies it, image jobs simply omit it."""
         loop = asyncio.get_running_loop()
         pipeline = await loop.run_in_executor(self._executor, self._build_pipeline_sync)
-        return await loop.run_in_executor(self._executor, pipeline.analyze, frame_bgr)
+        return await loop.run_in_executor(
+            self._executor, functools.partial(pipeline.analyze, frame_bgr, growth_ratio=growth_ratio)
+        )
+
+    async def run_sync(self, func: Callable[..., _T], *args: Any, **kwargs: Any) -> _T:
+        """Run an arbitrary synchronous callable on the same dedicated
+        worker thread used for inference. Used by the video job runner for
+        OpenCV `VideoCapture` I/O so frame reads never touch the event loop
+        either, and stay serialized with any concurrent inference work."""
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(self._executor, functools.partial(func, *args, **kwargs))
 
     def describe_config(self) -> dict[str, Any]:
         """Real, current configuration -- resolved values if the pipeline is

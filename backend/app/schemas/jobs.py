@@ -49,6 +49,38 @@ class ImageAnalysisResult(BaseModel):
     warnings: list[str] = Field(default_factory=list)
 
 
+class VideoFrameMetrics(BaseModel):
+    """Compact per-frame metrics for one processed frame of a video job --
+    this is the whole `job.progress` payload, and also the `final_metrics`
+    of a completed video job's summary. Deliberately excludes the density
+    map / heatmap / raw points: those are large and never leave the
+    process in this phase."""
+
+    frame_number: int
+    total_frames: Optional[int] = None
+    elapsed_s: float
+    current_count: float
+    peak_count: float
+    density: float
+    cluster_count: int
+    largest_cluster: int
+    risk_status: str
+    risk_score: float
+    latency_ms: float
+    fps: Optional[float] = None
+
+
+class VideoJobSummary(BaseModel):
+    """The real output of a completed video job -- aggregated frame-loop
+    bookkeeping plus the last frame's metrics, nothing synthesized."""
+
+    frames_processed: int
+    total_frames: Optional[int] = None
+    elapsed_s: float
+    peak_count: float
+    final_metrics: VideoFrameMetrics
+
+
 class JobRecordResponse(BaseModel):
     job_id: str
     job_type: JobType
@@ -60,6 +92,11 @@ class JobRecordResponse(BaseModel):
     source_description: str = ""
     message: Optional[str] = None
     result: Optional[ImageAnalysisResult] = None
+    video_result: Optional[VideoJobSummary] = None
+    current_frame: int = 0
+    total_frames: Optional[int] = None
+    peak_count: float = 0.0
+    latest_metrics: Optional[VideoFrameMetrics] = None
     error: Optional[str] = None
 
 
@@ -89,7 +126,14 @@ def frame_result_to_image_result(result: "FrameResult") -> ImageAnalysisResult:
 
 
 def job_record_to_response(record: "JobRecord") -> JobRecordResponse:
-    result = ImageAnalysisResult(**record.result) if record.result is not None else None
+    image_result = None
+    video_result = None
+    if record.result is not None:
+        if record.job_type == JobType.VIDEO:
+            video_result = VideoJobSummary(**record.result)
+        else:
+            image_result = ImageAnalysisResult(**record.result)
+    latest_metrics = VideoFrameMetrics(**record.latest_metrics) if record.latest_metrics is not None else None
     return JobRecordResponse(
         job_id=record.job_id,
         job_type=record.job_type,
@@ -100,6 +144,11 @@ def job_record_to_response(record: "JobRecord") -> JobRecordResponse:
         progress=record.progress,
         source_description=record.source_description,
         message=record.message,
-        result=result,
+        result=image_result,
+        video_result=video_result,
+        current_frame=record.current_frame,
+        total_frames=record.total_frames,
+        peak_count=record.peak_count,
+        latest_metrics=latest_metrics,
         error=record.error,
     )

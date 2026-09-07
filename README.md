@@ -457,15 +457,41 @@ hardcoded, and none of them affect model behavior.
 | GET | `/api/status` | Typed passthrough of `crowdmon.system_status.GLOBAL_STATUS` (same state the dashboard's `/status` exposes). |
 | GET | `/api/config` | Current model/clustering/risk configuration, reflecting the pipeline's *actual resolved* device -- read-only in this phase, no hot-reload. |
 | POST | `/api/jobs/image` | Multipart image upload; runs synchronously (inference is a few seconds on CPU) and returns a completed job record with the real analysis result. |
-| POST | `/api/jobs/video` | Multipart video upload; streams it to a temp working file and returns a job record immediately (`202`). **Frame-by-frame processing is not implemented in this phase** -- the job stays `pending` with an explanatory `message`. This establishes the job/WebSocket contract a later phase's background runner will fill in. |
-| GET | `/api/jobs/{job_id}` | Look up any job created above. |
+| POST | `/api/jobs/video` | Multipart video upload; streams it to a temp working file, creates a job record, **schedules frame-by-frame processing in the background, and returns immediately (`202`)** with the job in `pending` or `running` status. The response never contains the video result -- track progress and the final result via `WS /ws/jobs/{job_id}` (below) or by polling `GET /api/jobs/{job_id}`. |
+| GET | `/api/jobs/{job_id}` | Look up any job created above. For a video job this also reports `current_frame`, `total_frames` (when known), `peak_count`, `latest_metrics`, and, once `completed`, `video_result` (frame count, elapsed time, peak count, final frame metrics). |
+
+### Video jobs are asynchronous (`jobs/video_runner.py`)
+
+`POST /api/jobs/video` only validates and stores the upload; it never runs
+inference on the request. Once the job record is created, `jobs/video_runner.py`
+schedules `run_video_job` as a fire-and-forget `asyncio` task that:
+
+- opens the upload with OpenCV `VideoCapture` and reads frames sequentially,
+- runs every frame through the *same* `PipelineRuntime.analyze()` used by
+  `/api/jobs/image` (no second model is constructed), with both the
+  `VideoCapture` I/O and the inference call going through
+  `PipelineRuntime`'s existing single-worker executor -- never the asyncio
+  event loop,
+- tracks peak count and the trend-based growth ratio with
+  `crowdmon.video.StreamState`, the same helper the CLI's video loop uses,
+- updates the job's progress (`0..1` once the total frame count is known),
+  current/total frame, peak count, and latest metrics in the `JobStore`
+  after every frame,
+- publishes throttled (~6-7 messages/sec) `job.progress` events over
+  `WS /ws/jobs/{job_id}`, and terminal `job.completed` / `job.error` events
+  exactly once,
+- always releases the `VideoCapture` and deletes the temporary uploaded
+  file, whether processing succeeds or fails,
+- always ends the job in `completed` or `failed` -- never leaves it stuck
+  `running`, and never reports success for a job that raised partway
+  through.
 
 ### WebSocket endpoints
 
 | Path | Purpose |
 |---|---|
 | `WS /ws/system` | System-wide channel: connection ack, one `system.status` snapshot on connect, then a heartbeat. |
-| `WS /ws/jobs/{job_id}` | Per-job channel: connection ack, one `job.status` snapshot (status/progress/message) on connect, then a heartbeat. Closes immediately (code `4404`) if the job doesn't exist. |
+| `WS /ws/jobs/{job_id}` | Per-job channel: connection ack, one `job.status` snapshot (status/progress/message) on connect, then a heartbeat. For a video job, also carries the job's lifecycle events below as they happen. Closes immediately (code `4404`) if the job doesn't exist. |
 
 Every message on every channel uses the same envelope
 (`backend/app/schemas/ws.py::WSEnvelope`):
@@ -474,13 +500,25 @@ Every message on every channel uses the same envelope
 { "type": "system.status", "job_id": null, "ts": 1732000000.123, "data": { } }
 ```
 
-`type` in this phase is one of `connection.ack`, `system.status`,
-`job.status`, `ping`, `pong`, or `error`. A client can send the text
-`"ping"` (or `{"type": "ping"}`) and gets a `pong` back; the server also
-sends its own `ping` every 20s so a client can detect a dead connection.
-**Later phases add new `type` values (`job.progress`, `detections`,
-`risk.changed`, ...) for streaming metrics -- the envelope shape itself does
-not change.**
+`type` is one of `connection.ack`, `system.status`, `job.status`,
+`job.started`, `job.progress`, `job.completed`, `job.error`, `ping`,
+`pong`, or `error`. A client can send the text `"ping"` (or
+`{"type": "ping"}`) and gets a `pong` back; the server also sends its own
+`ping` every 20s so a client can detect a dead connection.
+
+The four video-job events are:
+
+- `job.started` -- once, when the background runner picks the job up
+  (`data`: `job_type`, `source_description`).
+- `job.progress` -- throttled to ~5-10/sec regardless of video length;
+  `data` is one compact `VideoFrameMetrics` object (frame number, total
+  frames if known, elapsed time, current/peak count, density, cluster
+  count, largest cluster, risk status/score, inference latency/FPS) --
+  never a full density map, point array, or frame image.
+- `job.completed` -- once, with `data` = frames processed, total frames,
+  elapsed time, peak count, and the final frame's metrics.
+- `job.error` -- once, if processing fails; `data` = `{code, message}`,
+  and the job's `GET` record shows `status: "failed"` with the same error.
 
 **The WebSocket layer carries only small JSON metadata/events. It never
 carries video bytes, image bytes, or full-resolution frames** -- large
@@ -499,10 +537,13 @@ completely framework-agnostic -- it doesn't know FastAPI or Flask exist.
   blocks the asyncio event loop (and therefore never stalls WebSocket
   heartbeats or other requests).
 - `jobs/store.py` is a small, thread-safe **in-memory** job registry
-  (create/get/mark_running/mark_completed/mark_failed), with TTL-based
-  eviction of old jobs and their temp files. Its interface is intentionally
-  narrow so a later phase can swap in Redis or a database without changing
-  any router or schema.
+  (create/get/mark_running/update_video_progress/mark_completed/mark_failed),
+  with TTL-based eviction of old jobs and their temp files. Its interface is
+  intentionally narrow so a later phase can swap in Redis or a database
+  without changing any router or schema.
+- `jobs/video_runner.py` is the background runner described above: one
+  `asyncio` task per video job, driving `PipelineRuntime`/`JobStore`/
+  `ConnectionManager` -- it holds no model or executor of its own.
 - `schemas/` holds all Pydantic request/response and WebSocket-envelope
   models -- routers never pass raw dicts around.
 - `errors.py` gives every error response the same
@@ -514,10 +555,12 @@ completely framework-agnostic -- it doesn't know FastAPI or Flask exist.
 live only in the backend process's memory and disappear on restart.
 Uploaded videos are written to a plain OS temp directory
 (`$TMPDIR/crowdmon_backend_uploads/`) as a *working file*, not permanent
-storage, and are deleted when their job's TTL expires (`CROWDMON_BACKEND_JOB_TTL_SECONDS`,
-default 1 hour) or, once processing exists, once the job is done using them.
-This is a deliberate V1 constraint, not an oversight -- see the architecture
-plan for how this slots in for a future EC2 + object-storage deployment.
+storage, and are deleted as soon as the background runner finishes with them
+(success or failure) -- or, in the unlikely case a job never finishes, when
+its record's TTL expires (`CROWDMON_BACKEND_JOB_TTL_SECONDS`, default 1
+hour). This is a deliberate V1 constraint, not an oversight -- see the
+architecture plan for how this slots in for a future EC2 + object-storage
+deployment.
 
 ### Tests
 

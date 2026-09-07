@@ -33,6 +33,12 @@ class JobRecord:
     message: Optional[str] = None
     result: Optional[dict[str, Any]] = None
     error: Optional[str] = None
+    # Video-job-only progress fields -- unused (left at defaults) for image
+    # jobs, which complete in a single step.
+    current_frame: int = 0
+    total_frames: Optional[int] = None
+    peak_count: float = 0.0
+    latest_metrics: Optional[dict[str, Any]] = None
     # Internal working file for this job (e.g. an uploaded video). Never
     # serialized into an API response -- it's a filesystem detail, not part
     # of the public job contract.
@@ -91,6 +97,23 @@ class JobStore:
             record.progress = max(0.0, min(1.0, progress))
             if message is not None:
                 record.message = message
+
+    def update_video_progress(
+        self,
+        job_id: str,
+        progress: float,
+        current_frame: int,
+        total_frames: Optional[int],
+        peak_count: float,
+        metrics: dict[str, Any],
+    ) -> None:
+        with self._lock:
+            record = self._jobs[job_id]
+            record.progress = max(0.0, min(1.0, progress))
+            record.current_frame = current_frame
+            record.total_frames = total_frames
+            record.peak_count = peak_count
+            record.latest_metrics = metrics
 
     def mark_completed(self, job_id: str, result: dict[str, Any]) -> None:
         with self._lock:

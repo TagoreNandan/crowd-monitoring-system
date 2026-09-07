@@ -3,10 +3,14 @@
     POST /api/jobs/image     -- synchronous: runs the existing pipeline and
                                  returns a completed job record.
     POST /api/jobs/video     -- accepts + stores the upload, creates an
-                                 in-memory job record, returns immediately.
-                                 Frame-by-frame processing is NOT implemented
-                                 in this phase (that's the Phase 2 background
-                                 runner) -- see the job's `message` field.
+                                 in-memory job record, schedules background
+                                 frame-by-frame processing (see
+                                 `jobs/video_runner.py`), and returns
+                                 immediately with HTTP 202. Progress and the
+                                 final result are published on
+                                 `WS /ws/jobs/{job_id}` (`job.started` /
+                                 `job.progress` / `job.completed` /
+                                 `job.error`), not in this response.
     GET  /api/jobs/{job_id}  -- look up any job created above.
 
 All inference goes through `PipelineRuntime.analyze()`, which is the only
@@ -20,14 +24,16 @@ import logging
 
 from fastapi import APIRouter, Depends, File, UploadFile
 
-from ..dependencies import get_job_store, get_pipeline_runtime
+from ..dependencies import get_connection_manager, get_job_store, get_pipeline_runtime
 from ..errors import InvalidUploadError, JobNotFoundError, PipelineUnavailableError
 from ..jobs.enums import JobType
 from ..jobs.store import JobStore
+from ..jobs.video_runner import schedule_video_job
 from ..pipeline_runtime import PipelineRuntime
 from ..schemas.jobs import JobRecordResponse, frame_result_to_image_result, job_record_to_response
 from ..settings import get_settings
 from ..utils import decode_image_bytes, save_upload_to_tempfile
+from ..ws.manager import ConnectionManager
 
 logger = logging.getLogger(__name__)
 
@@ -70,7 +76,9 @@ async def create_image_job(
 @router.post("/video", response_model=JobRecordResponse, status_code=202)
 async def create_video_job(
     video: UploadFile = File(...),
+    runtime: PipelineRuntime = Depends(get_pipeline_runtime),
     job_store: JobStore = Depends(get_job_store),
+    connection_manager: ConnectionManager = Depends(get_connection_manager),
 ) -> JobRecordResponse:
     settings = get_settings()
     max_bytes = int(settings.max_video_upload_mb * 1024 * 1024)
@@ -81,13 +89,13 @@ async def create_video_job(
         job_type=JobType.VIDEO,
         source_description=video.filename or "upload",
         temp_path=tmp_path,
-        message=(
-            "Video received and stored in a temporary working file. "
-            "Frame-by-frame processing is not implemented in this phase; "
-            "this job record establishes the job/WebSocket contract for "
-            "a later phase's background runner."
-        ),
     )
+
+    # Fire-and-forget: the response below is returned before this does any
+    # work. `schedule_video_job` never runs inference or OpenCV I/O on this
+    # coroutine -- it just schedules `run_video_job` on the event loop.
+    schedule_video_job(job.job_id, tmp_path, runtime, job_store, connection_manager)
+
     return job_record_to_response(job)
 
 

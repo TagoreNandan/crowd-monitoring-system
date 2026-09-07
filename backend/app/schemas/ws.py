@@ -4,10 +4,12 @@ Every message on every channel uses the same envelope shape:
 
     {"type": "...", "job_id": "...", "ts": 0, "data": {...}}
 
-`type` selects which `data` schema applies. This phase defines the
-connection lifecycle events (ack / status / heartbeat / error) that later
-phases build on -- it does not yet stream per-frame metrics, detection
-arrays, or any binary payload.
+`type` selects which `data` schema applies: connection lifecycle events
+(ack / status / heartbeat / error), plus the video job lifecycle events
+(`job.started` / `job.progress` / `job.completed` / `job.error`) published
+by `jobs/video_runner.py`. `job.progress` carries only compact per-frame
+metrics (see `VideoFrameMetrics`) -- never a detection array, density map,
+or any binary payload; video/image bytes never go over these sockets.
 """
 
 from __future__ import annotations
@@ -18,11 +20,20 @@ from typing import Any, Optional
 
 from pydantic import BaseModel, Field
 
+# `job.progress`/`job.completed` reuse the exact same typed metrics/summary
+# the REST job-lookup response uses (see `schemas/jobs.py`) -- one shape,
+# not a WS-only duplicate of it.
+from .jobs import VideoFrameMetrics, VideoJobSummary  # noqa: F401
+
 
 class WSEventType(str, Enum):
     CONNECTION_ACK = "connection.ack"
     SYSTEM_STATUS = "system.status"
     JOB_STATUS = "job.status"
+    JOB_STARTED = "job.started"
+    JOB_PROGRESS = "job.progress"
+    JOB_COMPLETED = "job.completed"
+    JOB_ERROR = "job.error"
     PING = "ping"
     PONG = "pong"
     ERROR = "error"
@@ -58,6 +69,14 @@ class JobStatusData(BaseModel):
     status: str
     progress: float
     message: Optional[str] = None
+
+
+class JobStartedData(BaseModel):
+    """`job.started` payload, sent once when the video job runner begins
+    processing (i.e. when the job leaves `pending` for `running`)."""
+
+    job_type: str
+    source_description: str = ""
 
 
 class ErrorData(BaseModel):

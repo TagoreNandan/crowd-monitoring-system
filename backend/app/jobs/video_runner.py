@@ -1,0 +1,214 @@
+"""Background runner for video jobs: owns the frame-by-frame loop that
+Phase 1's `POST /api/jobs/video` deliberately left unimplemented.
+
+Runs entirely off the asyncio event loop -- every OpenCV call and every
+`PipelineRuntime.analyze()` call goes through `PipelineRuntime`'s existing
+single-worker executor (see `pipeline_runtime.py`), so a multi-minute video
+never blocks WebSocket heartbeats or other requests. No new model, executor,
+or inference logic is constructed here; frame-level bookkeeping (peak count,
+growth-ratio trend) reuses `crowdmon.video.StreamState`, the same helper the
+CLI's video loop already uses.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+import time
+from pathlib import Path
+from typing import Any, Optional
+
+import cv2
+
+from crowdmon.video import StreamState
+
+from ..pipeline_runtime import PipelineRuntime
+from ..schemas.jobs import VideoFrameMetrics, VideoJobSummary
+from ..schemas.ws import ErrorData, JobStartedData, WSEnvelope, WSEventType
+from ..ws.manager import ConnectionManager
+from .store import JobStore
+
+logger = logging.getLogger(__name__)
+
+# ~6-7 messages/sec -- inside the 5-10/s target, so a long video's progress
+# stream never floods the socket.
+PROGRESS_EMIT_INTERVAL_S = 0.15
+
+# Holds in-flight job tasks purely so they can't be garbage-collected
+# mid-run (the standard asyncio idiom for a `create_task()` result nothing
+# awaits) -- entries are removed by `_on_task_done` as each task finishes.
+_background_tasks: set[asyncio.Task] = set()
+
+
+def schedule_video_job(
+    job_id: str,
+    video_path: Path,
+    runtime: PipelineRuntime,
+    job_store: JobStore,
+    connection_manager: ConnectionManager,
+) -> asyncio.Task:
+    """Fire-and-forget `run_video_job` onto the running event loop and
+    return immediately -- called from the request handler so `POST
+    /api/jobs/video` never waits on video processing."""
+    task = asyncio.create_task(run_video_job(job_id, video_path, runtime, job_store, connection_manager))
+    _background_tasks.add(task)
+    task.add_done_callback(_on_task_done)
+    return task
+
+
+def _on_task_done(task: asyncio.Task) -> None:
+    _background_tasks.discard(task)
+    if task.cancelled():
+        return
+    exc = task.exception()
+    if exc is not None:
+        # `run_video_job` catches everything it can and marks the job
+        # failed itself; this is a last-resort net so a bug in that handling
+        # still surfaces as a logged error instead of an unhandled task
+        # exception.
+        logger.error("Unhandled exception in video job task", exc_info=exc)
+
+
+def _build_metrics(
+    frame_number: int,
+    total_frames: Optional[int],
+    elapsed_s: float,
+    result: Any,
+    peak_count: float,
+) -> VideoFrameMetrics:
+    density = float(result.risk.components.get("relative_density_per_100px2", 0.0) or 0.0)
+    latency_ms = float(result.inference.latency_ms)
+    return VideoFrameMetrics(
+        frame_number=frame_number,
+        total_frames=total_frames,
+        elapsed_s=round(elapsed_s, 3),
+        current_count=round(float(result.inference.count), 2),
+        peak_count=round(float(peak_count), 2),
+        density=round(density, 3),
+        cluster_count=int(result.clusters.n_clusters),
+        largest_cluster=int(result.clusters.largest_cluster_size),
+        risk_status=str(result.risk.status),
+        risk_score=round(float(result.risk.score), 2),
+        latency_ms=round(latency_ms, 2),
+        fps=round(1000.0 / latency_ms, 2) if latency_ms > 0 else None,
+    )
+
+
+async def run_video_job(
+    job_id: str,
+    video_path: Path,
+    runtime: PipelineRuntime,
+    job_store: JobStore,
+    connection_manager: ConnectionManager,
+) -> None:
+    """Process one video job start to finish: open it, analyze every frame
+    through the existing pipeline, publish typed progress over the job's
+    WebSocket channel, and always end in `completed` or `failed` -- never
+    left `running` -- with the temp upload removed either way."""
+    channel = connection_manager.job_channel(job_id)
+    record = job_store.get(job_id)
+    source_description = record.source_description if record is not None else ""
+
+    cap: Optional[cv2.VideoCapture] = None
+    started = time.time()
+    state = StreamState()
+    frames_processed = 0
+    total_frames: Optional[int] = None
+    latest_metrics: Optional[VideoFrameMetrics] = None
+    last_emit = 0.0
+
+    try:
+        job_store.mark_running(job_id)
+        await connection_manager.broadcast(
+            channel,
+            WSEnvelope(
+                type=WSEventType.JOB_STARTED,
+                job_id=job_id,
+                data=JobStartedData(job_type="video", source_description=source_description).model_dump(),
+            ),
+        )
+
+        cap = await runtime.run_sync(cv2.VideoCapture, str(video_path))
+        is_opened = await runtime.run_sync(cap.isOpened)
+        if not is_opened:
+            raise RuntimeError(f"Could not open uploaded video '{video_path.name}': unsupported or corrupt file.")
+
+        raw_total = await runtime.run_sync(cap.get, cv2.CAP_PROP_FRAME_COUNT)
+        if raw_total and raw_total > 0:
+            total_frames = int(raw_total)
+
+        while True:
+            ok, frame = await runtime.run_sync(cap.read)
+            if not ok:
+                break
+
+            result = await runtime.analyze(frame, growth_ratio=state.growth_ratio())
+            state.update(result.inference.count)
+            frames_processed += 1
+
+            latest_metrics = _build_metrics(
+                frame_number=frames_processed,
+                total_frames=total_frames,
+                elapsed_s=time.time() - started,
+                result=result,
+                peak_count=state.peak_count,
+            )
+
+            progress = (frames_processed / total_frames) if total_frames else 0.0
+            job_store.update_video_progress(
+                job_id,
+                progress=progress,
+                current_frame=frames_processed,
+                total_frames=total_frames,
+                peak_count=state.peak_count,
+                metrics=latest_metrics.model_dump(),
+            )
+
+            now = time.monotonic()
+            if now - last_emit >= PROGRESS_EMIT_INTERVAL_S:
+                await connection_manager.broadcast(
+                    channel,
+                    WSEnvelope(type=WSEventType.JOB_PROGRESS, job_id=job_id, data=latest_metrics.model_dump()),
+                )
+                last_emit = now
+
+        if frames_processed == 0 or latest_metrics is None:
+            raise RuntimeError("No frames could be decoded from the uploaded video.")
+
+        summary = VideoJobSummary(
+            frames_processed=frames_processed,
+            total_frames=total_frames,
+            elapsed_s=round(time.time() - started, 3),
+            peak_count=round(state.peak_count, 2),
+            final_metrics=latest_metrics,
+        )
+        job_store.mark_completed(job_id, summary.model_dump())
+        await connection_manager.broadcast(
+            channel,
+            WSEnvelope(type=WSEventType.JOB_COMPLETED, job_id=job_id, data=summary.model_dump()),
+        )
+
+    except Exception as exc:
+        logger.exception("Video job %s failed", job_id)
+        job_store.mark_failed(job_id, str(exc))
+        try:
+            await connection_manager.broadcast(
+                channel,
+                WSEnvelope(
+                    type=WSEventType.JOB_ERROR,
+                    job_id=job_id,
+                    data=ErrorData(code="video_processing_failed", message=str(exc)).model_dump(),
+                ),
+            )
+        except Exception:
+            logger.exception("Failed to publish job.error for job %s", job_id)
+    finally:
+        if cap is not None:
+            try:
+                await runtime.run_sync(cap.release)
+            except Exception:
+                logger.exception("Failed to release VideoCapture for job %s", job_id)
+        try:
+            video_path.unlink(missing_ok=True)
+        except OSError:
+            logger.warning("Failed to remove temp video for job %s", job_id, exc_info=True)
