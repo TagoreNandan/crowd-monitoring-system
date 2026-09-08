@@ -8,11 +8,41 @@ CPU-only container like this one.
 
 from __future__ import annotations
 
+import contextlib
 import logging
+import threading
+from typing import Optional
 
 import torch
 
 logger = logging.getLogger(__name__)
+
+_MPS_LOCK = threading.Lock()
+_NULL_CONTEXT = contextlib.nullcontext()
+
+
+def get_device_lock(device: Optional[torch.device] = None):
+    """Serialization guard for a torch forward pass.
+
+    Apple's MPS backend is not safe for truly concurrent kernel launches
+    from multiple Python threads on the torch versions this project has
+    been tested against -- calling into it from two threads at once can
+    crash the process. This project runs two independent model-execution
+    threads for a real-time feed (the fast person-detector loop and the
+    slow DM-Count loop, see `crowd_monitoring.streaming.realtime`), so *some*
+    serialization is required whenever either one is on MPS.
+
+    It is scoped to MPS specifically (not "any device") on purpose: a CPU
+    forward pass from one thread and an MPS forward pass from another don't
+    share any hardware kernel queue, so forcing them through the same lock
+    would serialize work that doesn't need to be serialized -- exactly the
+    kind of unnecessary blocking that made an earlier version of the
+    real-time feed stall while DM-Count ran. Pass `device=None` (or a
+    non-MPS device) to get a no-op context manager.
+    """
+    if device is not None and device.type == "mps":
+        return _MPS_LOCK
+    return _NULL_CONTEXT
 
 
 def resolve_device(preferred: str = "auto") -> torch.device:

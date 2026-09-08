@@ -1,6 +1,6 @@
 # Default configuration for the crowd monitoring pipeline.
 # Override with --config path/to/your.yaml on the CLI scripts, or
-# CROWDMON_CONFIG=path/to/your.yaml for the dashboard.
+# CROWD_MONITORING_CONFIG=path/to/your.yaml for the dashboard.
 
 model:
   name: DM-Count       # DM-Count (recommended) or CSRNet

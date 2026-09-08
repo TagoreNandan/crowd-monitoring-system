@@ -1,6 +1,6 @@
 import numpy as np
 
-from crowdmon.evaluation import build_gt_density_map, evaluate_count_only, evaluate_density_maps, evaluate_with_gt_points
+from crowd_monitoring.evaluation import build_gt_density_map, evaluate_count_only, evaluate_density_maps, evaluate_with_gt_points
 
 
 def test_build_gt_density_map_integrates_to_point_count():

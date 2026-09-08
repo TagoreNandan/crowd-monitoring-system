@@ -22,7 +22,7 @@ from urllib.request import Request, urlopen
 logger = logging.getLogger(__name__)
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
-WEIGHTS_DIR = Path(os.environ.get("CROWDMON_WEIGHTS_DIR", REPO_ROOT / "weights"))
+WEIGHTS_DIR = Path(os.environ.get("CROWD_MONITORING_WEIGHTS_DIR", REPO_ROOT / "weights"))
 
 _RELEASE_BASE = "https://github.com/tersekmatija/lwcc_weights/releases/download/v0.1"
 

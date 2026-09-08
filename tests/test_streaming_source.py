@@ -4,7 +4,7 @@ import cv2
 import numpy as np
 import pytest
 
-from crowdmon.streaming import FileVideoSource
+from crowd_monitoring.streaming import FileVideoSource
 
 
 @pytest.fixture

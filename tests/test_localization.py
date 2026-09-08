@@ -1,6 +1,6 @@
 import numpy as np
 
-from crowdmon.localization import extract_points
+from crowd_monitoring.localization import extract_points
 
 
 def test_extract_points_finds_distinct_peaks():

@@ -18,66 +18,77 @@ the [LWCC project](https://github.com/tersekmatija/lwcc) on GitHub Releases
 Drive / Baidu Disk / OneDrive client needed. See the top-level README for why
 that mattered for this project.
 
-## Person detector (optional, backend visible-count overlay only)
+## Person detector: YOLOv8n trained on CrowdHuman (real, visible bounding boxes)
 
 | File | Purpose |
 |---|---|
-| `MobileNetSSD_deploy.prototxt` | MobileNet-SSD network definition (small text file). |
-| `MobileNetSSD_deploy.caffemodel` | MobileNet-SSD pretrained weights (~23 MB). |
+| `yolov8n_crowdhuman.pt` | YOLOv8n architecture, fine-tuned on CrowdHuman (~5.9 MB). **Default.** |
+| `yolov8n.pt` | Ultralytics YOLOv8n, COCO-pretrained (~6.2 MB). Fallback only. |
 
-These two files back `crowdmon.detection.PersonDetector`, used only by the
-FastAPI backend's video job runner to draw real, visible person bounding
-boxes (`visible_count`) as a *separate* signal alongside DM-Count's own
-`estimated_count` -- DM-Count handles dense/aerial crowd-density estimation
-(and never sees these files), while MobileNet-SSD only detects individual
-people that are large/close enough for a classic single-shot detector to
-resolve. It is not a substitute for DM-Count and won't produce meaningful
-counts on dense aerial crowd shots -- that's expected, not a bug.
+This backs `crowd_monitoring.detection.PersonDetector`, used by the FastAPI backend
+(image jobs, video jobs, and real-time feeds) to draw real, visible person
+bounding boxes (`visible_count`/`detections`) as a signal *separate* from
+DM-Count's own dense `estimated_count` -- DM-Count handles occlusion-robust
+crowd-density estimation and never sees these files, while the detector finds
+individual people that are large/resolvable enough for a modern detector to
+find. It is not a substitute for DM-Count and intentionally won't produce a
+box for every person in a heavily-occluded, very-dense crowd -- that's the
+documented `visible != estimated` distinction, not a bug.
 
-**Not** downloaded automatically, unlike the DM-Count/CSRNet checkpoints
-above: the classic MobileNet-SSD Caffe export isn't published from one
-canonical, versioned release, so this project doesn't guess a mirror URL to
-fetch a binary weight file from.
+**Model history on this project** (each step replaced after direct
+comparison on this project's own sample crowd photo/video, not guesswork):
 
-Source: both files come from the original
-[chuanqi305/MobileNet-SSD](https://github.com/chuanqi305/MobileNet-SSD)
-repo, pinned to commit
-[`9740699`](https://github.com/chuanqi305/MobileNet-SSD/commit/97406996b1eee2d40eb0a00ae567cf41e23369f9),
-fetched with a plain HTTPS GET (`raw.githubusercontent.com`) -- no Google
-Drive / Baidu Disk / OneDrive client needed:
+1. MobileNet-SSD (2016 Caffe SSD300): 0-2 boxes on the sample photo, 0 on a
+   4K sample video frame. Replaced -- couldn't do the job at all.
+2. COCO-pretrained YOLOv8n/YOLOv8m (general 80-class detector, "person" is
+   1 of 80): a single full-frame pass finds ~16-28 boxes. Trying to close the
+   gap with SAHI-style 32-tile inference did find more (~163-193 boxes) but
+   at 850ms/frame (YOLOv8n tiles) to **4.6 seconds/frame** (YOLOv8m tiles) --
+   unusable for real-time, and the bigger model was both slower AND found
+   *fewer* boxes tiled than the small one. Replaced -- treating the symptom
+   (not enough boxes) by brute-forcing more inference passes of a
+   crowd-naive model, rather than fixing the cause.
+3. **YOLOv8n trained on CrowdHuman** (current): CrowdHuman is a dataset built
+   specifically for dense, heavily-occluded crowds (~340k person instances
+   across ~15k images). A single full-frame pass at imgsz=1600 finds
+   **~135-226 boxes** on the same sample files in **~83-84ms** -- more boxes
+   than the old 32-tile approach, at roughly 1/10th the latency, with no
+   tiling needed.
 
-| File | URL (commit-pinned) | SHA1 |
-|---|---|---|
-| `MobileNetSSD_deploy.prototxt` | `.../97406996.../deploy.prototxt` | `50cf80235a8fcccc641bf9f8efc803edbf21c615` |
-| `MobileNetSSD_deploy.caffemodel` | `.../97406996.../mobilenet_iter_73000.caffemodel` | `19e3ec38842f3e68b02c07a1c24424a1e9db57e9` |
+Tiling (`generate_tiles`/`nms_boxes` in `src/crowd_monitoring/detection.py`) is still
+available as an opt-in (`PersonDetector(use_tiling=True)`) for a caller with
+a generous latency budget that wants to squeeze out a few more of the
+tiniest/farthest boxes on a single still image -- it is not used by default
+anywhere in this codebase.
 
-This exact prototxt/caffemodel pairing and both SHA1s are independently
-verified against OpenCV's own official test-data manifest
-(`opencv_extra/testdata/dnn/download_models.py`, entry `MobileNet-SSD
-(caffemodel)`/`MobileNet-SSD (prototxt)`), and reproduce OpenCV's own
-`Reproducibility_MobileNet_SSD` unit-test ground truth
-(`opencv_extra/testdata/dnn/mobilenet_ssd_caffe_out.npy` on
-`opencv_extra/testdata/dnn/street.png`) to floating-point precision. An
-earlier, differently-sized `MobileNetSSD_deploy.prototxt` variant that was
-briefly checked in here (also from the chuanqi305 repo, but a different,
-119-layer network definition) loaded without error against this caffemodel
-but silently produced zero valid detections -- same repo, same file names,
-but an incompatible pairing. Don't swap in a prototxt from elsewhere without
-re-verifying against the SHA1s above.
+Source: [yakhyo/yolov8-crowdhuman](https://github.com/yakhyo/yolov8-crowdhuman)
+(`yolov8n_best.pt`, renamed here to `yolov8n_crowdhuman.pt`), a real GitHub
+Release asset (plain HTTPS GET, not Google Drive/Baidu/an unofficial mirror),
+single class `"person"`, YOLOv8n architecture trained on the public
+CrowdHuman dataset via the standard Ultralytics training pipeline.
 
-If replacing these files, get both from the same pinned commit (or point
-`CROWDMON_SSD_PROTOTXT` / `CROWDMON_SSD_CAFFEMODEL` at your own verified
-copies) rather than mixing sources. If they're absent, the backend simply
-reports visible-person detection as unavailable for that job
-(`visible_count: null`) -- estimated-count analysis is unaffected either
-way.
+**Not** auto-downloaded (unlike DM-Count/`yolov8n.pt`, which have one
+canonical publisher-hosted release asset each): fetch it explicitly with
+```bash
+curl -sL -o weights/yolov8n_crowdhuman.pt \
+  https://github.com/yakhyo/yolov8-crowdhuman/releases/download/weights/yolov8n_best.pt
+```
+If it's absent, `PersonDetector` automatically falls back to the
+COCO-pretrained `yolov8n.pt` (auto-downloaded from Ultralytics' own official
+GitHub Releases, `ultralytics/assets`) -- fewer boxes in dense/occluded
+crowds, but detection still works rather than becoming unavailable. If
+*neither* file can be loaded (fully offline, first run), the backend reports
+visible-person detection as unavailable for that job/feed (`visible_count:
+null`, `detections: []`) -- estimated-count/density analysis from DM-Count is
+unaffected either way. Override the weights location with
+`CROWD_MONITORING_YOLO_WEIGHTS` if you want to point at your own copy.
 
-**Runtime requirement**: `readNetFromCaffe` needs `opencv-python-headless`
-4.x -- 5.0.0 (the version a loose `>=4.8` pin resolves to) dropped the
-Caffe/Darknet/Torch importers outright, so `PersonDetector` can't even load
-the model on it. `opencv-python-headless==4.9.0.80` through `4.14.0.94` were
-all spot-checked against the `Reproducibility_MobileNet_SSD`-style ground
-truth above and reproduce it correctly. `requirements.txt` pins the specific
-version this project validated against
-(`opencv-python-headless==4.11.0.86`); if you need to move that pin, re-run
-the ground-truth check above first rather than assuming any 4.x build works.
+**Runtime requirement**: needs the `ultralytics` package (`pip install
+ultralytics`, already in `requirements.txt`). It declares a dependency on
+plain `opencv-python`, which can shadow the `opencv-python-headless` build
+this project otherwise uses -- see the note at the top of `requirements.txt`
+if `cv2` starts behaving oddly after installing/upgrading it.
+
+The `MobileNetSSD_deploy.prototxt` / `MobileNetSSD_deploy.caffemodel` files
+that may still be sitting in this directory from the original detector are
+no longer read by anything in this codebase and can be deleted.

@@ -1,6 +1,6 @@
 import numpy as np
 
-from crowdmon.clustering import cluster_points
+from crowd_monitoring.clustering import cluster_points
 
 
 def test_two_tight_groups_form_two_clusters():

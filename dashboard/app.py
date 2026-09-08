@@ -27,24 +27,24 @@ from werkzeug.utils import secure_filename
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
-from crowdmon.config import load_config, pipeline_kwargs_from_config  # noqa: E402
-from crowdmon.pipeline import CrowdAnalysisPipeline  # noqa: E402
-from crowdmon.system_status import GLOBAL_STATUS  # noqa: E402
-from crowdmon.video import process_source  # noqa: E402
-from crowdmon.video_encoding import ensure_browser_compatible_video  # noqa: E402
+from crowd_monitoring.config import load_config, pipeline_kwargs_from_config  # noqa: E402
+from crowd_monitoring.pipeline import CrowdAnalysisPipeline  # noqa: E402
+from crowd_monitoring.system_status import GLOBAL_STATUS  # noqa: E402
+from crowd_monitoring.video import process_source  # noqa: E402
+from crowd_monitoring.video_encoding import ensure_browser_compatible_video  # noqa: E402
 
 RESULTS_DIR = REPO_ROOT / "dashboard" / "static" / "results"
 RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 UPLOAD_DIR = REPO_ROOT / "dashboard" / "static" / "uploads"
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
-_PIPELINE_KWARGS = pipeline_kwargs_from_config(load_config(os.environ.get("CROWDMON_CONFIG")))
-if os.environ.get("CROWDMON_MODEL"):
-    _PIPELINE_KWARGS["model_name"] = os.environ["CROWDMON_MODEL"]
-if os.environ.get("CROWDMON_WEIGHTS"):
-    _PIPELINE_KWARGS["model_weights"] = os.environ["CROWDMON_WEIGHTS"]
-if os.environ.get("CROWDMON_DEVICE"):
-    _PIPELINE_KWARGS["device"] = os.environ["CROWDMON_DEVICE"]
+_PIPELINE_KWARGS = pipeline_kwargs_from_config(load_config(os.environ.get("CROWD_MONITORING_CONFIG")))
+if os.environ.get("CROWD_MONITORING_MODEL"):
+    _PIPELINE_KWARGS["model_name"] = os.environ["CROWD_MONITORING_MODEL"]
+if os.environ.get("CROWD_MONITORING_WEIGHTS"):
+    _PIPELINE_KWARGS["model_weights"] = os.environ["CROWD_MONITORING_WEIGHTS"]
+if os.environ.get("CROWD_MONITORING_DEVICE"):
+    _PIPELINE_KWARGS["device"] = os.environ["CROWD_MONITORING_DEVICE"]
 
 MODEL_NAME = _PIPELINE_KWARGS["model_name"]
 MODEL_WEIGHTS = _PIPELINE_KWARGS["model_weights"]

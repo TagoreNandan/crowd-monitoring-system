@@ -89,7 +89,7 @@ crowd density) is the model actually wired into the pipeline. CSRNet
 (SHA/SHB) is included as a swappable alternative for comparison. If you
 have unrestricted internet access on your own machine and want to plug
 FIDTM in later for its native head-point output, the pipeline's model
-interface (`crowdmon/inference.py`, `CrowdCounter`) is intentionally small
+interface (`src/crowd_monitoring/inference.py`, `CrowdCounter`) is intentionally small
 and swappable -- see §10.
 
 ---
@@ -109,11 +109,11 @@ and swappable -- see §10.
   individual bumps merge and the *number of peaks undercounts* the true
   count. **The integrated density (the model's count) stays authoritative in
   that regime, not the number of peaks.** This limitation is documented
-  in-code in `crowdmon/localization.py`, not glossed over.
+  in-code in `src/crowd_monitoring/localization.py`, not glossed over.
 - **Clusters**: real DBSCAN (`scikit-learn`) over whatever points were
   extracted above -- garbage in, garbage out, same as the point-extraction
   caveat.
-- **Risk status**: a transparent, tunable heuristic (`crowdmon/risk.py`),
+- **Risk status**: a transparent, tunable heuristic (`src/crowd_monitoring/risk.py`),
   explicitly **not** a validated stampede-prediction model. See §6.
 - **PSNR/SSIM**: only ever computed in evaluation mode, against
   user-supplied ground truth. Never shown for a normal, no-ground-truth
@@ -129,7 +129,7 @@ git clone <this repo>
 cd crowd-monitoring-system
 python3 -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
-pip install -e .          # installs the `crowdmon` package (src/ layout)
+pip install -e .          # installs the `crowd_monitoring` package (src/ layout)
 ```
 
 Requires Python >= 3.9. `requirements.txt` pulls PyTorch from PyPI directly
@@ -197,7 +197,7 @@ available).
 
 ```bash
 python dashboard/app.py                      # http://localhost:5000
-CROWDMON_WEIGHTS=SHA python dashboard/app.py  # override model weights
+CROWD_MONITORING_WEIGHTS=SHA python dashboard/app.py  # override model weights
 PORT=8080 python dashboard/app.py             # override port
 ```
 
@@ -233,7 +233,7 @@ peak count runs well below the true count.
 
 ## 6. Crowd risk / status engine
 
-`crowdmon/risk.py` computes a 0-100 score by blending four signals:
+`src/crowd_monitoring/risk.py` computes a 0-100 score by blending four signals:
 
 1. **Count** vs. absolute thresholds (`count_caution/warning/critical`).
 2. **Relative density** -- estimated people per 100x100px patch of the frame.
@@ -271,7 +271,7 @@ So: **normal inference never computes or displays PSNR/SSIM** -- only count,
 density map, heatmap, and localization/clusters, all of which are
 well-defined without ground truth.
 
-`crowdmon/evaluation.py` provides evaluation mode, used only when you supply
+`src/crowd_monitoring/evaluation.py` provides evaluation mode, used only when you supply
 ground truth explicitly:
 
 - `evaluate_with_gt_points(pred_density, gt_points_xy, image_size)` --
@@ -291,7 +291,7 @@ Wired into the image CLI via `--gt-points path/to/points.json`.
 
 ## 8. System status
 
-`crowdmon/system_status.py` tracks only what this process can actually
+`src/crowd_monitoring/system_status.py` tracks only what this process can actually
 observe: whether the model is loaded, the input source connected, FPS,
 last inference latency, error count, and time since the last successful
 inference. It reports `ONLINE` / `DEGRADED` (recent error, or inference has
@@ -340,7 +340,7 @@ memory:
 What wasn't (and, honestly, couldn't be) tested here: an actual webcam
 (this is a headless remote container with no camera), and CUDA/MPS
 execution (this container has neither a GPU nor Apple Silicon) -- the
-device-selection code (`crowdmon/device.py`) has explicit tests for its
+device-selection code (`src/crowd_monitoring/device.py`) has explicit tests for its
 fallback logic, but the CUDA/MPS *code paths themselves* only get exercised
 on hardware that has them. If you run this on a CUDA machine or an Apple
 Silicon Mac, `--device auto` will pick them up automatically; please
@@ -350,7 +350,7 @@ sanity-check that one run there.
 
 ## 10. Hardware compatibility (CPU / MPS / CUDA)
 
-`crowdmon/device.py` resolves `"auto"` to CUDA > Apple MPS > CPU, in that
+`src/crowd_monitoring/device.py` resolves `"auto"` to CUDA > Apple MPS > CPU, in that
 order, and every script/dashboard exposes `--device {auto,cpu,cuda,mps}` (or
 `device:` in the YAML config). Nothing in the pipeline hardcodes a backend.
 If a chosen backend fails at model-load or first-inference time (e.g. an op
@@ -371,7 +371,7 @@ faster on a real GPU or Apple Silicon, and faster still with a smaller
 
 ```
 crowd-monitoring-system/
-├── src/crowdmon/           installable package
+├── src/src/crowd_monitoring/           installable package
 │   ├── models/              DM-Count / CSRNet architectures + weight registry & downloader
 │   ├── device.py             CUDA/MPS/CPU resolution with fallback
 │   ├── inference.py          CrowdCounter: preprocessing + forward pass -> count + density map
@@ -424,7 +424,7 @@ crowd-monitoring-system/
 `backend/` is a new FastAPI service that sits alongside the Flask
 `dashboard/` (which still works, unchanged -- see §4). It's the first step
 toward the V1 platform: REST + WebSocket endpoints for a future React
-dashboard, built entirely on top of the *existing* `crowdmon` package. No
+dashboard, built entirely on top of the *existing* `crowd_monitoring` package. No
 inference, clustering, or risk logic was duplicated or modified to build
 it -- `backend/app/pipeline_runtime.py` constructs and calls the same
 `CrowdAnalysisPipeline` the CLI scripts and dashboard already use.
@@ -432,21 +432,21 @@ it -- `backend/app/pipeline_runtime.py` constructs and calls the same
 ### Running it locally
 
 ```bash
-pip install -r requirements.txt          # crowdmon core deps
+pip install -r requirements.txt          # crowd_monitoring core deps
 pip install -r backend/requirements.txt  # + FastAPI/uvicorn/etc.
-pip install -e .                          # crowdmon itself, editable
+pip install -e .                          # crowd_monitoring itself, editable
 
 uvicorn backend.app.main:app --reload --port 8000
-# or: CROWDMON_DEVICE=cpu CROWDMON_WEIGHTS=SHA uvicorn backend.app.main:app --reload
+# or: CROWD_MONITORING_DEVICE=cpu CROWD_MONITORING_WEIGHTS=SHA uvicorn backend.app.main:app --reload
 ```
 
 Interactive API docs (auto-generated by FastAPI) are then at
 `http://localhost:8000/docs`. Model/weights/device env vars
-(`CROWDMON_MODEL`, `CROWDMON_WEIGHTS`, `CROWDMON_DEVICE`, `CROWDMON_CONFIG`)
+(`CROWD_MONITORING_MODEL`, `CROWD_MONITORING_WEIGHTS`, `CROWD_MONITORING_DEVICE`, `CROWD_MONITORING_CONFIG`)
 work exactly as they do for `dashboard/app.py` -- both front doors configure
 the same pipeline the same way. Backend-only settings (CORS origins, log
 level, job TTL, upload size limits) are environment-driven under the
-`CROWDMON_BACKEND_` prefix -- see `backend/app/settings.py`; nothing is
+`CROWD_MONITORING_BACKEND_` prefix -- see `backend/app/settings.py`; nothing is
 hardcoded, and none of them affect model behavior.
 
 ### REST endpoints
@@ -454,7 +454,7 @@ hardcoded, and none of them affect model behavior.
 | Method | Path | Notes |
 |---|---|---|
 | GET | `/api/health` | Liveness + whether the model is loaded. |
-| GET | `/api/status` | Typed passthrough of `crowdmon.system_status.GLOBAL_STATUS` (same state the dashboard's `/status` exposes). |
+| GET | `/api/status` | Typed passthrough of `crowd_monitoring.system_status.GLOBAL_STATUS` (same state the dashboard's `/status` exposes). |
 | GET | `/api/config` | Current model/clustering/risk configuration, reflecting the pipeline's *actual resolved* device -- read-only in this phase, no hot-reload. |
 | POST | `/api/jobs/image` | Multipart image upload; runs synchronously (inference is a few seconds on CPU) and returns a completed job record with the real analysis result. |
 | POST | `/api/jobs/video` | Multipart video upload; streams it to a temp working file, creates a job record, **schedules frame-by-frame processing in the background, and returns immediately (`202`)** with the job in `pending` or `running` status. The response never contains the video result -- track progress and the final result via `WS /ws/jobs/{job_id}` (below) or by polling `GET /api/jobs/{job_id}`. |
@@ -473,7 +473,7 @@ schedules `run_video_job` as a fire-and-forget `asyncio` task that:
   `PipelineRuntime`'s existing single-worker executor -- never the asyncio
   event loop,
 - tracks peak count and the trend-based growth ratio with
-  `crowdmon.video.StreamState`, the same helper the CLI's video loop uses,
+  `crowd_monitoring.video.StreamState`, the same helper the CLI's video loop uses,
 - updates the job's progress (`0..1` once the total frame count is known),
   current/total frame, peak count, and latest metrics in the `JobStore`
   after every frame,
@@ -524,9 +524,9 @@ The four video-job events are:
 carries video bytes, image bytes, or full-resolution frames** -- large
 uploads go through the REST job endpoints above, not the socket.
 
-### Architecture: backend vs. `crowdmon`
+### Architecture: backend vs. `crowd_monitoring`
 
-`src/crowdmon/` remains the single source of truth for all AI logic
+`src/src/crowd_monitoring/` remains the single source of truth for all AI logic
 (model inference, heatmaps, localization, clustering, risk) and is
 completely framework-agnostic -- it doesn't know FastAPI or Flask exist.
 `backend/app/` is a thin, typed wrapper around it:
@@ -554,10 +554,10 @@ completely framework-agnostic -- it doesn't know FastAPI or Flask exist.
 **No database, no Redis, no S3/object storage in this phase.** Job records
 live only in the backend process's memory and disappear on restart.
 Uploaded videos are written to a plain OS temp directory
-(`$TMPDIR/crowdmon_backend_uploads/`) as a *working file*, not permanent
+(`$TMPDIR/crowd_monitoring_backend_uploads/`) as a *working file*, not permanent
 storage, and are deleted as soon as the background runner finishes with them
 (success or failure) -- or, in the unlikely case a job never finishes, when
-its record's TTL expires (`CROWDMON_BACKEND_JOB_TTL_SECONDS`, default 1
+its record's TTL expires (`CROWD_MONITORING_BACKEND_JOB_TTL_SECONDS`, default 1
 hour). This is a deliberate V1 constraint, not an oversight -- see the
 architecture plan for how this slots in for a future EC2 + object-storage
 deployment.
@@ -566,9 +566,9 @@ deployment.
 
 ```bash
 pytest backend/tests/     # FastAPI TestClient tests for the above
-pytest tests/              # unchanged core crowdmon tests (still pass)
+pytest tests/              # unchanged core crowd_monitoring tests (still pass)
 ```
 
-`backend/tests/conftest.py` forces `CROWDMON_DEVICE=cpu` and the default
+`backend/tests/conftest.py` forces `CROWD_MONITORING_DEVICE=cpu` and the default
 `QNRF` weights (already cached in `weights/` after §3) so these tests are
 deterministic and need no network access.

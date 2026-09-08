@@ -1,6 +1,6 @@
 import numpy as np
 
-from crowdmon.heatmap import colorize_density, normalize_density, overlay_heatmap
+from crowd_monitoring.heatmap import colorize_density, normalize_density, overlay_heatmap
 
 
 def _fake_density_map():

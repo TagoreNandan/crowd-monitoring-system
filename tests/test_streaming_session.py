@@ -3,7 +3,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from crowdmon.streaming import FileVideoSource, StreamSession
+from crowd_monitoring.streaming import FileVideoSource, StreamSession
 
 
 class _FakePipeline:

@@ -3,7 +3,7 @@ import time
 
 import pytest
 
-from crowdmon.streaming import LatestFrameBuffer
+from crowd_monitoring.streaming import LatestFrameBuffer
 
 
 def test_maxsize_must_be_positive():

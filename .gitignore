@@ -1,6 +1,8 @@
 __pycache__/
 *.pyc
 .venv/
+node_modules/
+.env*
 *.egg-info/
 build/
 dist/
@@ -8,6 +10,7 @@ dist/
 # Pretrained weights are downloaded on demand (see scripts/download_weights.py);
 # do not commit large binary checkpoints to git.
 weights/*.pth
+weights/*.pt
 weights/*.caffemodel
 weights/*.part
 

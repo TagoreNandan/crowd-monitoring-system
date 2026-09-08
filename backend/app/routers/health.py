@@ -3,7 +3,7 @@
 Deliberately minimal: "is the process up, and is the model loaded." For the
 richer, real-time-observed state (fps, latency, error count, ...) see
 GET /api/status, which is a direct passthrough of
-`crowdmon.system_status.GLOBAL_STATUS`.
+`crowd_monitoring.system_status.GLOBAL_STATUS`.
 """
 
 from __future__ import annotations

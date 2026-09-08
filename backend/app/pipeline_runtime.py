@@ -1,10 +1,10 @@
-"""Owns the single `crowdmon.pipeline.CrowdAnalysisPipeline` instance used by
+"""Owns the single `crowd_monitoring.pipeline.CrowdAnalysisPipeline` instance used by
 the backend, and the thread-pool boundary that keeps its synchronous,
 CPU/GPU-bound PyTorch inference off the asyncio event loop.
 
 This module intentionally contains NO inference logic of its own -- it only
 constructs and calls the existing `CrowdAnalysisPipeline` exactly as the CLI
-scripts and Flask dashboard already do, via `crowdmon.config`.
+scripts and Flask dashboard already do, via `crowd_monitoring.config`.
 """
 
 from __future__ import annotations
@@ -20,9 +20,9 @@ from typing import Any, Callable, Optional, TypeVar
 
 import numpy as np
 
-from crowdmon.config import load_config, pipeline_kwargs_from_config
-from crowdmon.device import device_name
-from crowdmon.pipeline import CrowdAnalysisPipeline, FrameResult
+from crowd_monitoring.config import load_config, pipeline_kwargs_from_config
+from crowd_monitoring.device import device_name
+from crowd_monitoring.pipeline import CrowdAnalysisPipeline, FrameResult
 
 logger = logging.getLogger(__name__)
 
@@ -31,19 +31,19 @@ _T = TypeVar("_T")
 
 def build_pipeline_kwargs() -> dict[str, Any]:
     """Resolve `CrowdAnalysisPipeline` kwargs the same way `dashboard/app.py`
-    does: `configs/default.yaml` (or `CROWDMON_CONFIG`) as the base, with the
-    same `CROWDMON_MODEL` / `CROWDMON_WEIGHTS` / `CROWDMON_DEVICE` env-var
+    does: `configs/default.yaml` (or `CROWD_MONITORING_CONFIG`) as the base, with the
+    same `CROWD_MONITORING_MODEL` / `CROWD_MONITORING_WEIGHTS` / `CROWD_MONITORING_DEVICE` env-var
     overrides. Keeping this identical to the dashboard means both front
     doors configure the underlying model the same way.
     """
-    cfg = load_config(os.environ.get("CROWDMON_CONFIG"))
+    cfg = load_config(os.environ.get("CROWD_MONITORING_CONFIG"))
     kwargs = pipeline_kwargs_from_config(cfg)
-    if os.environ.get("CROWDMON_MODEL"):
-        kwargs["model_name"] = os.environ["CROWDMON_MODEL"]
-    if os.environ.get("CROWDMON_WEIGHTS"):
-        kwargs["model_weights"] = os.environ["CROWDMON_WEIGHTS"]
-    if os.environ.get("CROWDMON_DEVICE"):
-        kwargs["device"] = os.environ["CROWDMON_DEVICE"]
+    if os.environ.get("CROWD_MONITORING_MODEL"):
+        kwargs["model_name"] = os.environ["CROWD_MONITORING_MODEL"]
+    if os.environ.get("CROWD_MONITORING_WEIGHTS"):
+        kwargs["model_weights"] = os.environ["CROWD_MONITORING_WEIGHTS"]
+    if os.environ.get("CROWD_MONITORING_DEVICE"):
+        kwargs["device"] = os.environ["CROWD_MONITORING_DEVICE"]
     return kwargs
 
 
@@ -70,7 +70,27 @@ class PipelineRuntime:
         # concurrent worker on one device, and >1 risks oversubscribing the
         # CPU -- one dedicated inference thread keeps requests serialized
         # and latency predictable.
-        self._executor = ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="crowdmon-inference")
+        self._executor = ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="crowd-monitoring-inference")
+
+        # A second, CPU-forced, lower-resolution DM-Count pipeline used only
+        # by real-time feeds' density thread (see
+        # crowd_monitoring.streaming.realtime.RealtimeFeedSession and
+        # backend/app/routers/feeds.py). This is deliberate, not a
+        # leftover/duplicate: the primary pipeline above stays on whatever
+        # accelerator "auto" resolves to (MPS on this project's dev
+        # hardware) so the real-time feed's person-detector thread has that
+        # accelerator entirely to itself. Running DM-Count on the SAME MPS
+        # device from a second thread would still serialize against the
+        # detector via `crowd_monitoring.device.get_device_lock` (MPS is not safe
+        # for concurrent kernel launches from multiple threads) and could
+        # stall live frame delivery for the density pass's ~500ms+ duration
+        # -- exactly what real-time must never do. CPU has no such
+        # constraint, and a reduced max_side (640 vs. the primary
+        # pipeline's usual 1024) keeps a CPU forward pass to roughly
+        # ~0.9s/frame on this project's own dev hardware (measured), close
+        # to the ~1Hz cadence real-time feeds already pace themselves to.
+        self._realtime_density_pipeline: Optional[CrowdAnalysisPipeline] = None
+        self._realtime_density_build_lock = threading.Lock()
 
     @property
     def is_ready(self) -> bool:
@@ -111,13 +131,35 @@ class PipelineRuntime:
         """Async-safe wrapper around the existing, unmodified
         `CrowdAnalysisPipeline.analyze()`. `growth_ratio` is passed straight
         through to it -- it already accepts this for video's trend-based
-        risk signal (see `crowdmon.video.process_source`); the video job
+        risk signal (see `crowd_monitoring.video.process_source`); the video job
         runner supplies it, image jobs simply omit it."""
         loop = asyncio.get_running_loop()
         pipeline = await loop.run_in_executor(self._executor, self._build_pipeline_sync)
         return await loop.run_in_executor(
             self._executor, functools.partial(pipeline.analyze, frame_bgr, growth_ratio=growth_ratio)
         )
+
+    def _build_realtime_density_pipeline_sync(self) -> CrowdAnalysisPipeline:
+        """Runs on a worker thread. Lazily builds the CPU/reduced-resolution
+        DM-Count pipeline used only by real-time feeds -- see the
+        constructor comment. Reuses the same model/weights/risk/clustering
+        config as the primary pipeline, only overriding `device` and
+        `max_side`."""
+        if self._realtime_density_pipeline is None:
+            with self._realtime_density_build_lock:
+                if self._realtime_density_pipeline is None:
+                    kwargs = dict(self._pipeline_kwargs)
+                    kwargs["device"] = "cpu"
+                    kwargs["max_side"] = min(int(kwargs.get("max_side") or 1024), 640)
+                    logger.info("Building real-time-feed density pipeline (CPU, max_side=%s)", kwargs["max_side"])
+                    self._realtime_density_pipeline = CrowdAnalysisPipeline(**kwargs)
+        return self._realtime_density_pipeline
+
+    async def get_realtime_density_pipeline(self) -> CrowdAnalysisPipeline:
+        """Async helper to get or build the real-time-feed density pipeline
+        (CPU-forced, see constructor comment) off the event loop."""
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(self._executor, self._build_realtime_density_pipeline_sync)
 
     async def run_sync(self, func: Callable[..., _T], *args: Any, **kwargs: Any) -> _T:
         """Run an arbitrary synchronous callable on the same dedicated

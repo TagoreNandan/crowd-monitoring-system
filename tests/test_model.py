@@ -2,7 +2,7 @@
 
 import numpy as np
 
-from crowdmon.inference import CrowdCounter
+from crowd_monitoring.inference import CrowdCounter
 
 
 def test_real_inference_on_synthetic_image(counter, sample_image):

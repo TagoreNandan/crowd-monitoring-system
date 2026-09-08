@@ -20,7 +20,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from crowdmon.streaming import Frame, InferenceWorker, LatestFrameBuffer, WorkerResult
+from crowd_monitoring.streaming import Frame, InferenceWorker, LatestFrameBuffer, WorkerResult
 
 
 class _FakePipeline:
@@ -160,7 +160,7 @@ def test_worker_invokes_real_crowd_analysis_pipeline(pipeline, sample_image):
     `CrowdAnalysisPipeline` (CPU, DM-Count/SHA) and a synthetic RGB-ish
     frame. Confirms the worker drives the actual, unmodified pipeline
     (returns a real `FrameResult`), not a stand-in."""
-    from crowdmon.pipeline import FrameResult
+    from crowd_monitoring.pipeline import FrameResult
 
     buf = LatestFrameBuffer(maxsize=1)
     buf.put(

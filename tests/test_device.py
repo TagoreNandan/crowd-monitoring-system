@@ -1,6 +1,6 @@
 import torch
 
-from crowdmon.device import device_name, resolve_device
+from crowd_monitoring.device import device_name, resolve_device
 
 
 def test_cpu_always_available():

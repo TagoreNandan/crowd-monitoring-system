@@ -18,7 +18,7 @@ from fastapi import UploadFile
 
 from .errors import InvalidUploadError
 
-UPLOAD_TMP_DIR = Path(tempfile.gettempdir()) / "crowdmon_backend_uploads"
+UPLOAD_TMP_DIR = Path(tempfile.gettempdir()) / "crowd_monitoring_backend_uploads"
 
 
 def decode_image_bytes(data: bytes) -> np.ndarray:
@@ -35,7 +35,7 @@ async def save_upload_to_tempfile(upload: UploadFile, max_bytes: int, chunk_size
     removes the partial file) if it's empty or exceeds `max_bytes`."""
     UPLOAD_TMP_DIR.mkdir(parents=True, exist_ok=True)
     suffix = Path(upload.filename or "").suffix or ".bin"
-    fd, tmp_name = tempfile.mkstemp(prefix="crowdmon_upload_", suffix=suffix, dir=str(UPLOAD_TMP_DIR))
+    fd, tmp_name = tempfile.mkstemp(prefix="crowd_monitoring_upload_", suffix=suffix, dir=str(UPLOAD_TMP_DIR))
     tmp_path = Path(tmp_name)
     written = 0
     try:

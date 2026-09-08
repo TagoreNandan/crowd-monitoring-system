@@ -2,7 +2,7 @@ import cv2
 import numpy as np
 import pytest
 
-from crowdmon.video import process_source
+from crowd_monitoring.video import process_source
 
 
 @pytest.fixture

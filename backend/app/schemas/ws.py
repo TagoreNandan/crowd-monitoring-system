@@ -36,6 +36,7 @@ class WSEventType(str, Enum):
     JOB_ERROR = "job.error"
     FEED_STATUS = "feed.status"
     FEED_PROGRESS = "feed.progress"
+    FEED_ERROR = "feed.error"
     PING = "ping"
     PONG = "pong"
     ERROR = "error"
@@ -54,7 +55,7 @@ class ConnectionAckData(BaseModel):
 
 
 class SystemStatusData(BaseModel):
-    """Mirrors `crowdmon.system_status.SystemStatus` -- the same
+    """Mirrors `crowd_monitoring.system_status.SystemStatus` -- the same
     real, locally-observed state exposed by GET /api/status."""
 
     state: str

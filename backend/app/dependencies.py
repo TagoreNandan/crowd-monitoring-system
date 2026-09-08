@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from fastapi import Request
 
-from crowdmon.detection import PersonDetector
+from crowd_monitoring.detection import PersonDetector
 
 from .jobs.store import JobStore
 from .pipeline_runtime import PipelineRuntime

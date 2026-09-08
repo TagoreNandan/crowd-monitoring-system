@@ -2,7 +2,7 @@ import cv2
 import numpy as np
 import pytest
 
-from crowdmon.video_encoding import ensure_browser_compatible_video, is_ffmpeg_available
+from crowd_monitoring.video_encoding import ensure_browser_compatible_video, is_ffmpeg_available
 
 
 @pytest.fixture

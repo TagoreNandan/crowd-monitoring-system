@@ -97,7 +97,7 @@ class InferenceWorker(Generic[T]):
         if self._thread is not None:
             return
         self._stop_event.clear()
-        self._thread = threading.Thread(target=self._run, name="crowdmon-inference-worker", daemon=True)
+        self._thread = threading.Thread(target=self._run, name="crowd-monitoring-inference-worker", daemon=True)
         self._thread.start()
 
     def stop(self, timeout: Optional[float] = None) -> None:

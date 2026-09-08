@@ -56,6 +56,12 @@ class PipelineUnavailableError(ApiError):
         super().__init__(503, "pipeline_unavailable", message)
 
 
+class VideoNotAvailableError(ApiError):
+    def __init__(self, job_id: str, message: str):
+        super().__init__(404, "video_not_available", message)
+        self.job_id = job_id
+
+
 def install_exception_handlers(app: FastAPI) -> None:
     @app.exception_handler(ApiError)
     async def _handle_api_error(request: Request, exc: ApiError) -> JSONResponse:

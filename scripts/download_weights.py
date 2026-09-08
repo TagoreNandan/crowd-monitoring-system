@@ -12,7 +12,7 @@ from __future__ import annotations
 import argparse
 import sys
 
-from crowdmon.models.weights import AVAILABLE_WEIGHTS, ensure_weights
+from crowd_monitoring.models.weights import AVAILABLE_WEIGHTS, ensure_weights
 
 
 def main():

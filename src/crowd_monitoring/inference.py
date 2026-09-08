@@ -16,10 +16,11 @@ import cv2
 import numpy as np
 import torch
 
-from .device import device_name, resolve_device
+from .device import device_name, get_device_lock, resolve_device
 from .models import build_model
 
 logger = logging.getLogger(__name__)
+
 
 _IMAGENET_MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32)
 _IMAGENET_STD = np.array([0.229, 0.224, 0.225], dtype=np.float32)
@@ -91,8 +92,9 @@ class CrowdCounter:
         tensor = tensor.to(self.device)
 
         try:
-            with torch.no_grad():
-                output = self.model(tensor)
+            with get_device_lock(self.device):
+                with torch.no_grad():
+                    output = self.model(tensor)
         except RuntimeError as exc:
             if self.device.type != "cpu":
                 logger.warning("Inference failed on %s (%s); retrying on CPU.", self.device, exc)
@@ -100,8 +102,9 @@ class CrowdCounter:
                 self.device = torch.device("cpu")
                 self.model.to(self.device)
                 tensor = tensor.to(self.device)
-                with torch.no_grad():
-                    output = self.model(tensor)
+                with get_device_lock(self.device):
+                    with torch.no_grad():
+                        output = self.model(tensor)
             else:
                 raise
 

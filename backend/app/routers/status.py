@@ -1,5 +1,5 @@
 """GET /api/status -- a typed passthrough of the existing
-`crowdmon.system_status.GLOBAL_STATUS` singleton, unchanged. This is the
+`crowd_monitoring.system_status.GLOBAL_STATUS` singleton, unchanged. This is the
 same real, locally-observed state (model loaded, fps, latency, error count,
 ONLINE/DEGRADED/OFFLINE) the Flask dashboard's `/status` route already
 exposes -- reused here, not reimplemented.
@@ -12,7 +12,7 @@ from typing import Optional
 from fastapi import APIRouter
 from pydantic import BaseModel
 
-from crowdmon.system_status import GLOBAL_STATUS
+from crowd_monitoring.system_status import GLOBAL_STATUS
 
 router = APIRouter(prefix="/api", tags=["status"])
 

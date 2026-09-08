@@ -43,6 +43,20 @@ class JobRecord:
     # serialized into an API response -- it's a filesystem detail, not part
     # of the public job contract.
     temp_path: Optional[Path] = None
+    # The annotated (boxes + stats panel) output video for a completed video
+    # job, kept on disk (unlike `temp_path`, the original upload, which is
+    # always removed once processing finishes) so `GET
+    # /api/jobs/{job_id}/video` can serve it. `None` until the job completes
+    # successfully. Also a filesystem detail, never serialized directly --
+    # routers expose it only via the dedicated video-download endpoint.
+    annotated_video_path: Optional[Path] = None
+    # Same idea, for the "Heatmap" (pure density overlay, no boxes) and
+    # "Combined" (heatmap + boxes + stats panel) video views -- see
+    # `GET /api/jobs/{job_id}/video/{view}`. Built in the SAME processing
+    # pass as `annotated_video_path`, reusing the already-computed density
+    # map (no extra DM-Count calls) -- see `jobs/video_runner.py`.
+    heatmap_video_path: Optional[Path] = None
+    combined_video_path: Optional[Path] = None
 
 
 class JobStore:
@@ -123,6 +137,24 @@ class JobStore:
             record.progress = 1.0
             record.result = result
 
+    def set_annotated_video_path(self, job_id: str, path: Path) -> None:
+        with self._lock:
+            record = self._jobs.get(job_id)
+            if record is not None:
+                record.annotated_video_path = path
+
+    def set_heatmap_video_path(self, job_id: str, path: Path) -> None:
+        with self._lock:
+            record = self._jobs.get(job_id)
+            if record is not None:
+                record.heatmap_video_path = path
+
+    def set_combined_video_path(self, job_id: str, path: Path) -> None:
+        with self._lock:
+            record = self._jobs.get(job_id)
+            if record is not None:
+                record.combined_video_path = path
+
     def mark_failed(self, job_id: str, error: str) -> None:
         with self._lock:
             record = self._jobs[job_id]
@@ -152,3 +184,9 @@ class JobStore:
                     record.temp_path.unlink(missing_ok=True)
                 except OSError:
                     pass
+            for video_path in (record.annotated_video_path, record.heatmap_video_path, record.combined_video_path):
+                if video_path is not None:
+                    try:
+                        video_path.unlink(missing_ok=True)
+                    except OSError:
+                        pass

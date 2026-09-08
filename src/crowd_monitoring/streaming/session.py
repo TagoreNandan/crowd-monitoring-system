@@ -85,7 +85,7 @@ class StreamSession:
         self._worker.start()
         self._producer_thread = threading.Thread(
             target=self._run_producer,
-            name=f"crowdmon-producer-{self.session_id}",
+            name=f"crowd-monitoring-producer-{self.session_id}",
             daemon=True,
         )
         self.started_at = time.time()

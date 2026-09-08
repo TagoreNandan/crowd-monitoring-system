@@ -1,4 +1,4 @@
-from crowdmon.pipeline import FrameResult
+from crowd_monitoring.pipeline import FrameResult
 
 
 def test_pipeline_end_to_end(pipeline, sample_image):
@@ -11,7 +11,7 @@ def test_pipeline_end_to_end(pipeline, sample_image):
 
 
 def test_pipeline_updates_system_status(pipeline, sample_image):
-    from crowdmon.system_status import GLOBAL_STATUS
+    from crowd_monitoring.system_status import GLOBAL_STATUS
 
     pipeline.analyze(sample_image)
     snap = GLOBAL_STATUS.snapshot()

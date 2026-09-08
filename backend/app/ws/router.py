@@ -15,7 +15,7 @@ from typing import Optional
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
-from crowdmon.system_status import GLOBAL_STATUS
+from crowd_monitoring.system_status import GLOBAL_STATUS
 
 from ..schemas.ws import ConnectionAckData, JobStatusData, SystemStatusData, WSEnvelope, WSEventType
 from .manager import ConnectionManager

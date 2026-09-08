@@ -1,6 +1,6 @@
 """Response schema for GET /api/config.
 
-Mirrors `crowdmon.risk.RiskConfig` field-for-field on purpose: this is the
+Mirrors `crowd_monitoring.risk.RiskConfig` field-for-field on purpose: this is the
 real, live threshold set the risk engine is using, not a re-derived summary.
 """
 

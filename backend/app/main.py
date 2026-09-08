@@ -1,6 +1,6 @@
 """FastAPI application factory for the crowd-monitoring backend.
 
-This wraps the existing `crowdmon` package -- it does not duplicate any
+This wraps the existing `crowd_monitoring` package -- it does not duplicate any
 inference, clustering, or risk logic. See docs in README.md ("FastAPI
 backend") for the full endpoint list and the in-memory/temp-only storage
 model this phase intentionally uses.
@@ -38,13 +38,13 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     try:
         await app_state.pipeline_runtime.ensure_ready()
-        logger.info("crowdmon pipeline ready.")
+        logger.info("crowd_monitoring pipeline ready.")
     except Exception:
         # Don't crash the whole service if the model can't load at boot
         # (e.g. offline with no cached weights) -- /api/health will
         # honestly report model_loaded=False, and /api/jobs/image will
         # retry the build on the next request.
-        logger.exception("crowdmon pipeline failed to load at startup; will retry lazily on first use.")
+        logger.exception("crowd_monitoring pipeline failed to load at startup; will retry lazily on first use.")
 
     yield
 
@@ -58,7 +58,7 @@ def create_app() -> FastAPI:
     app = FastAPI(
         title="Crowd Monitoring Platform API",
         description=(
-            "FastAPI backend wrapping the crowdmon AI pipeline (DM-Count density "
+            "FastAPI backend wrapping the crowd_monitoring AI pipeline (DM-Count density "
             "estimation, DBSCAN clustering, rule-based risk status). In-memory "
             "and temporary-file state only in this phase -- no database, no "
             "object storage. See README.md for details."

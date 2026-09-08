@@ -21,7 +21,7 @@ def counter():
     """Real CrowdCounter (DM-Count/SHA, CPU) for tests that exercise the model
     directly rather than through the full pipeline. Same download-if-missing /
     skip-if-offline behavior as the `pipeline` fixture below."""
-    from crowdmon.inference import CrowdCounter
+    from crowd_monitoring.inference import CrowdCounter
 
     try:
         return CrowdCounter(model_name="DM-Count", model_weights="SHA", device="cpu", download=True)
@@ -36,7 +36,7 @@ def pipeline():
     cached locally (e.g. a fresh checkout/CI runner); skips these integration
     tests rather than hard-failing the whole suite if that download can't
     succeed (no network access from the runner)."""
-    from crowdmon.pipeline import CrowdAnalysisPipeline
+    from crowd_monitoring.pipeline import CrowdAnalysisPipeline
 
     try:
         return CrowdAnalysisPipeline(model_name="DM-Count", model_weights="SHA", device="cpu", download=True)

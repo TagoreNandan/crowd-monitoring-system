@@ -16,9 +16,9 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from crowdmon.config import load_config, pipeline_kwargs_from_config
-from crowdmon.evaluation import evaluate_with_gt_points
-from crowdmon.pipeline import CrowdAnalysisPipeline
+from crowd_monitoring.config import load_config, pipeline_kwargs_from_config
+from crowd_monitoring.evaluation import evaluate_with_gt_points
+from crowd_monitoring.pipeline import CrowdAnalysisPipeline
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
 

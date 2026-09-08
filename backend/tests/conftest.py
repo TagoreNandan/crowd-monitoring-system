@@ -13,9 +13,9 @@ sys.path.insert(0, str(REPO_ROOT))
 # Force CPU + the already-cached QNRF weights so these tests are
 # deterministic and never require a network download, mirroring the
 # `pipeline`/`counter` fixtures in tests/conftest.py.
-os.environ.setdefault("CROWDMON_DEVICE", "cpu")
-os.environ.setdefault("CROWDMON_MODEL", "DM-Count")
-os.environ.setdefault("CROWDMON_WEIGHTS", "QNRF")
+os.environ.setdefault("CROWD_MONITORING_DEVICE", "cpu")
+os.environ.setdefault("CROWD_MONITORING_MODEL", "DM-Count")
+os.environ.setdefault("CROWD_MONITORING_WEIGHTS", "QNRF")
 
 
 @pytest.fixture(scope="session")

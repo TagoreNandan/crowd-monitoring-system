@@ -1,4 +1,4 @@
-from crowdmon.risk import RiskConfig, STATUS_LEVELS, assess_risk
+from crowd_monitoring.risk import RiskConfig, STATUS_LEVELS, assess_risk
 
 
 def test_low_count_is_safe():

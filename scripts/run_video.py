@@ -20,9 +20,9 @@ from pathlib import Path
 
 import cv2
 
-from crowdmon.config import load_config, pipeline_kwargs_from_config
-from crowdmon.pipeline import CrowdAnalysisPipeline
-from crowdmon.video import process_source
+from crowd_monitoring.config import load_config, pipeline_kwargs_from_config
+from crowd_monitoring.pipeline import CrowdAnalysisPipeline
+from crowd_monitoring.video import process_source
 
 
 def annotate(frame_bgr, result, state):

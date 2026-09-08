@@ -1,7 +1,7 @@
 import pytest
 
-from crowdmon.detection import PersonDetection
-from crowdmon.tracking import PersonTracker, TrackedPerson, compute_iou
+from crowd_monitoring.detection import PersonDetection
+from crowd_monitoring.tracking import PersonTracker, TrackedPerson, compute_iou
 
 
 def test_compute_iou():

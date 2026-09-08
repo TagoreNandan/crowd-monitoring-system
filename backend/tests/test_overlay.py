@@ -1,4 +1,4 @@
-"""Unit tests for `crowdmon.overlay`: box drawing and the stats panel, the
+"""Unit tests for `crowd_monitoring.overlay`: box drawing and the stats panel, the
 "professional frame overlay" the video job runner composes per frame. Pure
 pixel-drawing functions -- no model, no video file, no job machinery.
 """
@@ -7,13 +7,13 @@ from __future__ import annotations
 
 import numpy as np
 
-from crowdmon.detection import PersonDetection
-from crowdmon.overlay import draw_person_boxes, draw_stats_panel, render_video_overlay
+from crowd_monitoring.detection import PersonDetection
+from crowd_monitoring.overlay import draw_person_boxes, draw_stats_panel, render_video_overlay
 
 _STATS_KWARGS = dict(
     frame_number=5,
     total_frames=100,
-    elapsed_s=1.23,
+    video_time_s=1.23,
     visible_count=3,
     estimated_count=12.5,
     peak_count=20.0,

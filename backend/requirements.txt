@@ -1,13 +1,13 @@
 # Additional dependencies for the FastAPI backend (backend/).
 #
-# The core `crowdmon` package (../requirements.txt) has no web-framework
+# The core `crowd_monitoring` package (../requirements.txt) has no web-framework
 # dependency at all -- it stays usable standalone via the CLI scripts. This
 # file is only what backend/ adds on top of that.
 #
 # Install with:
-#   pip install -r requirements.txt        # crowdmon core (from repo root)
+#   pip install -r requirements.txt        # crowd_monitoring core (from repo root)
 #   pip install -r backend/requirements.txt # this backend layer
-#   pip install -e .                        # crowdmon itself, editable
+#   pip install -e .                        # crowd_monitoring itself, editable
 
 fastapi>=0.110
 uvicorn[standard]>=0.29

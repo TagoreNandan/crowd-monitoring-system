@@ -1,4 +1,4 @@
-from crowdmon.config import load_config, pipeline_kwargs_from_config, risk_config_from_dict
+from crowd_monitoring.config import load_config, pipeline_kwargs_from_config, risk_config_from_dict
 
 
 def test_default_config_loads():

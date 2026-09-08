@@ -1,4 +1,4 @@
-from crowdmon.system_status import StatusTracker
+from crowd_monitoring.system_status import StatusTracker
 
 
 def test_offline_before_model_loaded():
