@@ -1,0 +1,17 @@
+# NOTE: install this file top-to-bottom as-is (or `pip install -r requirements.txt`
+# in one shot). `ultralytics` declares a dependency on plain `opencv-python`,
+# which installs the same `cv2` import name as `opencv-python-headless` and
+# will silently shadow it if installed afterwards without `--no-deps`. If you
+# ever see `cv2` behaving oddly after adding a package, reassert the headless
+# build with:
+#   pip install --force-reinstall --no-deps opencv-python-headless==4.11.0.86
+torch>=2.0
+opencv-python-headless==4.11.0.86
+numpy>=1.24
+scipy>=1.10
+scikit-learn>=1.3
+scikit-image>=0.21
+Pillow>=10.0
+Flask>=3.0
+PyYAML>=6.0
+ultralytics>=8.3
