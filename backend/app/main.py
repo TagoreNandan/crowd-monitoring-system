@@ -22,6 +22,7 @@ from .pipeline_runtime import build_pipeline_kwargs
 from .routers import admin as admin_router
 from .routers import auth as auth_router
 from .routers import config as config_router
+from .routers import devices as devices_router
 from .routers import feeds as feeds_router
 from .routers import health as health_router
 from .routers import jobs as jobs_router
@@ -83,6 +84,7 @@ def create_app() -> FastAPI:
 
     app.include_router(auth_router.router)
     app.include_router(admin_router.router)
+    app.include_router(devices_router.router)
     app.include_router(health_router.router)
     app.include_router(status_router.router)
     app.include_router(config_router.router)

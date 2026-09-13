@@ -6,13 +6,15 @@ import { ImageView } from './views/ImageView';
 import { VideoView } from './views/VideoView';
 import { FeedView } from './views/FeedView';
 import { AdminView } from './views/AdminView';
+import { DeviceManagementView } from './views/DeviceManagementView';
 import { AuthModal } from './components/AuthModal';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { getHealth, getStatus, connectWebSocket } from './lib/api';
-import type { SystemHealth, SystemStatus, VideoFrameMetrics, WSEnvelope } from './types/api';
+import type { Device, SystemHealth, SystemStatus, VideoFrameMetrics, WSEnvelope } from './types/api';
 
 function AppContent() {
   const [activeView, setActiveView] = useState<ViewType>('overview');
+  const [selectedFeedDevice, setSelectedFeedDevice] = useState<Device | null>(null);
   const [health, setHealth] = useState<SystemHealth | null>(null);
   const [status, setStatus] = useState<SystemStatus | null>(null);
   const [latestMetrics, setLatestMetrics] = useState<VideoFrameMetrics | null>(null);
@@ -70,9 +72,10 @@ function AppContent() {
 
   const viewTitles: Record<ViewType, string> = {
     overview: 'Overview',
+    feed: 'Real-Time Feed',
+    devices: 'Device Fleet Management',
     image: 'Image Analysis',
     video: 'Video Analysis',
-    feed: 'Real-Time Feed',
     admin: 'Administrator Console',
   };
 
@@ -87,12 +90,21 @@ function AppContent() {
             onNavigate={(view) => setActiveView(view as ViewType)}
           />
         );
+      case 'feed':
+        return <FeedView initialDevice={selectedFeedDevice} />;
+      case 'devices':
+        return (
+          <DeviceManagementView
+            onSelectDeviceForFeed={(device) => {
+              setSelectedFeedDevice(device);
+              setActiveView('feed');
+            }}
+          />
+        );
       case 'image':
         return <ImageView />;
       case 'video':
         return <VideoView />;
-      case 'feed':
-        return <FeedView />;
       case 'admin':
         return <AdminView />;
       default:

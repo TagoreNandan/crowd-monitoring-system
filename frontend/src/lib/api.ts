@@ -2,8 +2,12 @@ import type {
   ActivityLog,
   AdminOverviewStats,
   AuthTokenResponse,
+  Device,
+  DeviceCreatePayload,
+  DeviceUpdatePayload,
   FeedResponse,
   JobRecordResponse,
+  StreamProbeResult,
   SystemConfig,
   SystemHealth,
   SystemStatus,
@@ -299,3 +303,127 @@ export async function getAdminActivities(limit = 50, token?: string): Promise<Ac
   if (!res.ok) throw new Error('Failed to load system activities');
   return res.json();
 }
+
+export async function getDevices(
+  filters?: { status?: string; stream_type?: string; search?: string },
+  token?: string
+): Promise<Device[]> {
+  const authToken = token || getStoredToken();
+  const params = new URLSearchParams();
+  if (filters?.status && filters.status !== 'ALL') params.append('status', filters.status);
+  if (filters?.stream_type && filters.stream_type !== 'ALL') params.append('stream_type', filters.stream_type);
+  if (filters?.search) params.append('search', filters.search);
+
+  const query = params.toString() ? `?${params.toString()}` : '';
+  const res = await fetch(`${API_BASE}/devices${query}`, {
+    headers: { Authorization: `Bearer ${authToken}` },
+  });
+
+  if (!res.ok) throw new Error('Failed to fetch devices');
+  return res.json();
+}
+
+export async function getDevice(deviceId: string, token?: string): Promise<Device> {
+  const authToken = token || getStoredToken();
+  const res = await fetch(`${API_BASE}/devices/${encodeURIComponent(deviceId)}`, {
+    headers: { Authorization: `Bearer ${authToken}` },
+  });
+
+  if (!res.ok) throw new Error(`Device ${deviceId} not found`);
+  return res.json();
+}
+
+export async function createDevice(payload: DeviceCreatePayload, token?: string): Promise<Device> {
+  const authToken = token || getStoredToken();
+  const res = await fetch(`${API_BASE}/devices`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${authToken}`,
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || 'Failed to enroll device');
+  }
+
+  return res.json();
+}
+
+export async function updateDevice(
+  deviceId: string,
+  payload: DeviceUpdatePayload,
+  token?: string
+): Promise<Device> {
+  const authToken = token || getStoredToken();
+  const res = await fetch(`${API_BASE}/devices/${encodeURIComponent(deviceId)}`, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${authToken}`,
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || 'Failed to update device');
+  }
+
+  return res.json();
+}
+
+export async function deleteDevice(deviceId: string, token?: string): Promise<{ message: string; device_id: string }> {
+  const authToken = token || getStoredToken();
+  const res = await fetch(`${API_BASE}/devices/${encodeURIComponent(deviceId)}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${authToken}` },
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || 'Failed to delete device');
+  }
+
+  return res.json();
+}
+
+export async function probeStream(
+  payload: { stream_url: string; stream_type: string },
+  token?: string
+): Promise<StreamProbeResult> {
+  const authToken = token || getStoredToken();
+  const res = await fetch(`${API_BASE}/devices/probe`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${authToken}`,
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || 'Stream probe failed');
+  }
+
+  return res.json();
+}
+
+export async function testDevice(deviceId: string, token?: string): Promise<StreamProbeResult> {
+  const authToken = token || getStoredToken();
+  const res = await fetch(`${API_BASE}/devices/${encodeURIComponent(deviceId)}/test`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${authToken}` },
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || 'Device test failed');
+  }
+
+  return res.json();
+}
+

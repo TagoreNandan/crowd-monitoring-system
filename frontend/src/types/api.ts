@@ -194,3 +194,51 @@ export interface AdminOverviewStats {
   database_status?: string;
   recent_activities: ActivityLog[];
 }
+
+export interface Device {
+  id: number;
+  device_id: string;
+  name: string;
+  description?: string;
+  location: string;
+  stream_type: 'RTSP' | 'WEBCAM' | 'HTTP_HLS' | 'VIDEO_FILE' | string;
+  stream_url: string;
+  status: 'ONLINE' | 'STANDBY' | 'OFFLINE' | 'MAINTENANCE' | 'ERROR' | string;
+  fps?: number | null;
+  resolution?: string;
+  created_by?: number | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DeviceCreatePayload {
+  device_id: string;
+  name: string;
+  description?: string;
+  location: string;
+  stream_type: string;
+  stream_url: string;
+  status?: string;
+  fps?: number | null;
+  resolution?: string;
+}
+
+export interface DeviceUpdatePayload {
+  name?: string;
+  description?: string;
+  location?: string;
+  stream_type?: string;
+  stream_url?: string;
+  status?: string;
+  fps?: number | null;
+  resolution?: string;
+}
+
+export interface StreamProbeResult {
+  is_reachable: boolean;
+  resolution?: string | null;
+  fps?: number | null;
+  latency_ms?: number | null;
+  error?: string | null;
+}
+

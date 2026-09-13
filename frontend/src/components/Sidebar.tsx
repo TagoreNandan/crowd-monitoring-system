@@ -1,8 +1,8 @@
 import React from 'react';
-import { LayoutDashboard, Image as ImageIcon, Video, Radio, Shield, Lock } from 'lucide-react';
+import { LayoutDashboard, Image as ImageIcon, Video, Radio, Shield, Lock, Camera } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
-export type ViewType = 'overview' | 'image' | 'video' | 'feed' | 'admin';
+export type ViewType = 'overview' | 'image' | 'video' | 'feed' | 'devices' | 'admin';
 
 interface SidebarProps {
   activeView: ViewType;
@@ -30,9 +30,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   const navItems = [
     { id: 'overview', label: 'Overview', icon: LayoutDashboard },
+    { id: 'feed', label: 'Real-Time Feed', icon: Radio },
+    { id: 'devices', label: 'Device Fleet', icon: Camera },
     { id: 'image', label: 'Image Analysis', icon: ImageIcon },
     { id: 'video', label: 'Video Analysis', icon: Video },
-    { id: 'feed', label: 'Real-Time Feed', icon: Radio },
   ];
 
   return (

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from .session import Base, SessionLocal, engine
-from .models import User, ActivityLog
+from .models import User, ActivityLog, Device
 from ..auth.security import hash_password
 from ..settings import get_settings
 
@@ -50,6 +50,24 @@ def init_db() -> None:
             admin.is_active = True
             db.commit()
             logger.info(f"Administrator credentials synced: username='{settings.admin_username}'")
+
+        # Seed initial sample camera if fleet is empty
+        if db.query(Device).count() == 0:
+            sample_device = Device(
+                device_id="CAM-DEMO-01",
+                name="North Concourse Main Gate",
+                description="High-definition 4K sample surveillance feed for crowd monitoring.",
+                location="Main Terminal Gate 3",
+                stream_type="VIDEO_FILE",
+                stream_url="dashboard/static/uploads/077cc45b94_14968235_2160_3840_60fps.mp4",
+                status="ONLINE",
+                fps=60.0,
+                resolution="3840x2160",
+                created_by=admin.id if admin else None,
+            )
+            db.add(sample_device)
+            db.commit()
+            logger.info("Default demonstration device seeded: CAM-DEMO-01")
 
     except Exception as e:
         logger.error(f"Error initializing database: {e}")

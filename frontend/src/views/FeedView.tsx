@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Radio, Play, Square, RefreshCw, AlertCircle, Users, Eye } from 'lucide-react';
-import { createFeed, stopFeed, connectWebSocket, uploadFeedVideo } from '../lib/api';
-import type { FeedResponse, PartialFeedMetrics, VideoFrameMetrics, WSEnvelope } from '../types/api';
+import { Radio, Play, Square, RefreshCw, AlertCircle, Users, Eye, Camera, CheckCircle2 } from 'lucide-react';
+import { createFeed, stopFeed, connectWebSocket, uploadFeedVideo, getDevices } from '../lib/api';
+import type { Device, FeedResponse, PartialFeedMetrics, VideoFrameMetrics, WSEnvelope } from '../types/api';
 import { Badge } from '../components/ui/Badge';
 import { Button } from '../components/ui/Button';
 
@@ -10,7 +10,13 @@ type ViewMode = 'bbox' | 'heatmap' | 'combined';
 
 const MAX_RECONNECT_ATTEMPTS = 3;
 
-export const FeedView: React.FC = () => {
+interface FeedViewProps {
+  initialDevice?: Device | null;
+}
+
+export const FeedView: React.FC<FeedViewProps> = ({ initialDevice }) => {
+  const [enrolledDevices, setEnrolledDevices] = useState<Device[]>([]);
+  const [selectedDeviceId, setSelectedDeviceId] = useState<string>('');
   const [sourceType, setSourceType] = useState<string>('sample');
   const [sourceUri, setSourceUri] = useState<string>('dashboard/static/uploads/077cc45b94_14968235_2160_3840_60fps.mp4');
   const [feedUploadFile, setFeedUploadFile] = useState<File | null>(null);
@@ -31,6 +37,31 @@ export const FeedView: React.FC = () => {
   const reconnectAttemptsRef = useRef<number>(0);
   const feedIdRef = useRef<string | null>(null);
   const reconnectTimerRef = useRef<any>(null);
+
+  const applyDeviceSource = (dev: Device) => {
+    if (dev.stream_type.toUpperCase() === 'WEBCAM') {
+      setSourceType('camera');
+      setSourceUri(dev.stream_url);
+    } else if (dev.stream_type.toUpperCase() === 'VIDEO_FILE') {
+      setSourceType('sample');
+      setSourceUri(dev.stream_url);
+    } else {
+      setSourceType('rtsp');
+      setSourceUri(dev.stream_url);
+    }
+  };
+
+  useEffect(() => {
+    getDevices()
+      .then((devs) => {
+        setEnrolledDevices(devs);
+        if (initialDevice) {
+          setSelectedDeviceId(initialDevice.device_id);
+          applyDeviceSource(initialDevice);
+        }
+      })
+      .catch((err) => console.error('Failed to load enrolled camera fleet:', err));
+  }, [initialDevice]);
 
   useEffect(() => {
     return () => {
@@ -294,6 +325,34 @@ export const FeedView: React.FC = () => {
             <span className="font-mono font-medium text-zinc-400 uppercase tracking-wider block text-[11px]">
               Ingestion Source Settings
             </span>
+
+            {/* Quick Enrolled Camera Selector */}
+            {enrolledDevices.length > 0 && (
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-2.5 rounded bg-zinc-950/80 border border-zinc-800/80">
+                <div className="flex items-center gap-2">
+                  <Camera className="w-3.5 h-3.5 text-zinc-400" />
+                  <span className="text-zinc-300 font-medium">Select Fleet Camera:</span>
+                </div>
+                <select
+                  value={selectedDeviceId}
+                  onChange={(e) => {
+                    const id = e.target.value;
+                    setSelectedDeviceId(id);
+                    const found = enrolledDevices.find((d) => d.device_id === id);
+                    if (found) applyDeviceSource(found);
+                  }}
+                  disabled={activeFeed !== null}
+                  className="bg-zinc-900 border border-zinc-700 text-zinc-200 text-xs rounded px-2.5 py-1 focus:outline-none font-mono"
+                >
+                  <option value="">-- Choose from Enrolled Fleet --</option>
+                  {enrolledDevices.map((d) => (
+                    <option key={d.device_id} value={d.device_id}>
+                      [{d.device_id}] {d.name} ({d.location}) &bull; {d.status}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div>

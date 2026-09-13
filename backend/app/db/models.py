@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from sqlalchemy import Boolean, Column, DateTime, Integer, String, Text
+from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Integer, String, Text
 from .session import Base
 
 
@@ -32,7 +32,25 @@ class ActivityLog(Base):
     user_id = Column(Integer, nullable=True, index=True)
     username = Column(String(50), nullable=False, default="system")
     action = Column(String(100), nullable=False, index=True)  # e.g., "USER_LOGIN", "IMAGE_ANALYSIS"
-    category = Column(String(50), nullable=False, default="GENERAL")  # "AUTH", "INFERENCE", "SYSTEM"
+    category = Column(String(50), nullable=False, default="GENERAL")  # "AUTH", "INFERENCE", "SYSTEM", "DEVICES"
     details = Column(Text, nullable=True, default="")
     severity = Column(String(20), nullable=False, default="INFO")  # "INFO", "WARNING", "CRITICAL"
     timestamp = Column(DateTime, default=utcnow, nullable=False, index=True)
+
+
+class Device(Base):
+    __tablename__ = "devices"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    device_id = Column(String(50), unique=True, index=True, nullable=False)
+    name = Column(String(100), nullable=False)
+    description = Column(Text, nullable=True, default="")
+    location = Column(String(100), nullable=False)
+    stream_type = Column(String(30), nullable=False, default="RTSP")  # RTSP, WEBCAM, HTTP_HLS, VIDEO_FILE
+    stream_url = Column(String(500), nullable=False)
+    status = Column(String(20), nullable=False, default="ONLINE")  # ONLINE, STANDBY, OFFLINE, MAINTENANCE
+    fps = Column(Float, nullable=True)
+    resolution = Column(String(50), nullable=True, default="")
+    created_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
