@@ -28,6 +28,9 @@ from fastapi.responses import FileResponse
 
 from crowd_monitoring.detection import PersonDetector
 
+from ..auth.dependencies import get_current_user_optional, log_activity
+from ..db.models import User
+from ..db.session import get_db
 from ..dependencies import get_connection_manager, get_job_store, get_person_detector, get_pipeline_runtime
 from ..errors import InvalidUploadError, JobNotFoundError, PipelineUnavailableError, VideoNotAvailableError
 from ..jobs.enums import JobType
@@ -39,6 +42,7 @@ from ..settings import get_settings
 from ..utils import decode_image_bytes, save_upload_to_tempfile
 from ..vision_utils import build_image_visualizations, detect_persons_with_refinement_async
 from ..ws.manager import ConnectionManager
+from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +55,8 @@ async def create_image_job(
     runtime: PipelineRuntime = Depends(get_pipeline_runtime),
     job_store: JobStore = Depends(get_job_store),
     person_detector: PersonDetector = Depends(get_person_detector),
+    db: Session = Depends(get_db),
+    user: Optional[User] = Depends(get_current_user_optional),
 ) -> JobRecordResponse:
     settings = get_settings()
     max_bytes = int(settings.max_image_upload_mb * 1024 * 1024)
@@ -90,6 +96,14 @@ async def create_image_job(
         )
     except Exception as exc:
         job_store.mark_failed(job.job_id, str(exc))
+        log_activity(
+            db,
+            action="IMAGE_ANALYSIS_FAILED",
+            category="INFERENCE",
+            details=f"Analysis failed for {image.filename or 'upload'}: {exc}",
+            severity="CRITICAL",
+            user=user,
+        )
         raise PipelineUnavailableError(f"Image analysis failed: {exc}") from exc
 
     summary = frame_result_to_image_result(
@@ -100,6 +114,20 @@ async def create_image_job(
         images=images,
     )
     job_store.mark_completed(job.job_id, summary.model_dump())
+
+    # Log successful analysis activity
+    risk_level = result.risk.level if hasattr(result, "risk") and hasattr(result.risk, "level") else "UNKNOWN"
+    count = round(result.count, 1) if hasattr(result, "count") else 0
+    severity = "CRITICAL" if str(risk_level).upper() in ("CRITICAL", "WARNING") else "INFO"
+    log_activity(
+        db,
+        action="IMAGE_ANALYZED",
+        category="INFERENCE",
+        details=f"File: {image.filename or 'upload'} | Count: {count} | Risk: {risk_level}",
+        severity=severity,
+        user=user,
+    )
+
     return job_record_to_response(job_store.get(job.job_id))
 
 
@@ -110,6 +138,8 @@ async def create_video_job(
     job_store: JobStore = Depends(get_job_store),
     connection_manager: ConnectionManager = Depends(get_connection_manager),
     person_detector: PersonDetector = Depends(get_person_detector),
+    db: Session = Depends(get_db),
+    user: Optional[User] = Depends(get_current_user_optional),
 ) -> JobRecordResponse:
     settings = get_settings()
     max_bytes = int(settings.max_video_upload_mb * 1024 * 1024)
@@ -122,12 +152,18 @@ async def create_video_job(
         temp_path=tmp_path,
     )
 
-    # Fire-and-forget: the response below is returned before this does any
-    # work. `schedule_video_job` never runs inference or OpenCV I/O on this
-    # coroutine -- it just schedules `run_video_job` on the event loop.
     schedule_video_job(
         job.job_id, tmp_path, runtime, job_store, connection_manager, person_detector,
         settings.density_analysis_hz, settings.video_detection_hz,
+    )
+
+    log_activity(
+        db,
+        action="VIDEO_JOB_SUBMITTED",
+        category="INFERENCE",
+        details=f"Video queued: {video.filename or 'upload'} (Job ID: {job.job_id})",
+        severity="INFO",
+        user=user,
     )
 
     return job_record_to_response(job)

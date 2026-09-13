@@ -1,22 +1,32 @@
 import { useState, useEffect, useRef } from 'react';
-import { Sidebar } from './components/Sidebar';
+import { Sidebar, type ViewType } from './components/Sidebar';
 import { TopBar } from './components/TopBar';
 import { OverviewView } from './views/OverviewView';
 import { ImageView } from './views/ImageView';
 import { VideoView } from './views/VideoView';
 import { FeedView } from './views/FeedView';
+import { AdminView } from './views/AdminView';
+import { AuthModal } from './components/AuthModal';
+import { AuthProvider, useAuth } from './context/AuthContext';
 import { getHealth, getStatus, connectWebSocket } from './lib/api';
 import type { SystemHealth, SystemStatus, VideoFrameMetrics, WSEnvelope } from './types/api';
 
-export type ViewType = 'overview' | 'image' | 'video' | 'feed';
-
-export function App() {
+function AppContent() {
   const [activeView, setActiveView] = useState<ViewType>('overview');
   const [health, setHealth] = useState<SystemHealth | null>(null);
   const [status, setStatus] = useState<SystemStatus | null>(null);
   const [latestMetrics, setLatestMetrics] = useState<VideoFrameMetrics | null>(null);
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
 
+  const { isAdmin } = useAuth();
   const wsRef = useRef<WebSocket | null>(null);
+
+  // If user loses admin privileges while on admin page, switch to overview
+  useEffect(() => {
+    if (activeView === 'admin' && !isAdmin) {
+      setActiveView('overview');
+    }
+  }, [isAdmin, activeView]);
 
   // Poll system health and status periodically
   useEffect(() => {
@@ -63,6 +73,7 @@ export function App() {
     image: 'Image Analysis',
     video: 'Video Analysis',
     feed: 'Real-Time Feed',
+    admin: 'Administrator Console',
   };
 
   const renderView = () => {
@@ -73,7 +84,7 @@ export function App() {
             health={health}
             status={status}
             latestMetrics={latestMetrics}
-            onNavigate={(view) => setActiveView(view)}
+            onNavigate={(view) => setActiveView(view as ViewType)}
           />
         );
       case 'image':
@@ -82,13 +93,15 @@ export function App() {
         return <VideoView />;
       case 'feed':
         return <FeedView />;
+      case 'admin':
+        return <AdminView />;
       default:
         return (
           <OverviewView
             health={health}
             status={status}
             latestMetrics={latestMetrics}
-            onNavigate={(view) => setActiveView(view)}
+            onNavigate={(view) => setActiveView(view as ViewType)}
           />
         );
     }
@@ -97,19 +110,42 @@ export function App() {
   return (
     <div className="flex h-screen bg-zinc-950 text-zinc-100 font-sans overflow-hidden antialiased">
       {/* Sidebar Navigation */}
-      <Sidebar activeView={activeView} onViewChange={setActiveView} />
+      <Sidebar
+        activeView={activeView}
+        onViewChange={setActiveView}
+        onOpenAuth={() => setIsAuthModalOpen(true)}
+      />
 
       {/* Main Content Workspace */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
         {/* Top Header Bar */}
-        <TopBar activeViewTitle={viewTitles[activeView]} />
+        <TopBar
+          activeViewTitle={viewTitles[activeView]}
+          health={health}
+          status={status}
+          onOpenAuth={() => setIsAuthModalOpen(true)}
+        />
 
         {/* Dynamic Viewport Container */}
         <main className="flex-1 overflow-y-auto bg-zinc-950">
           {renderView()}
         </main>
       </div>
+
+      {/* Auth Modal */}
+      <AuthModal
+        isOpen={isAuthModalOpen}
+        onClose={() => setIsAuthModalOpen(false)}
+      />
     </div>
+  );
+}
+
+export function App() {
+  return (
+    <AuthProvider>
+      <AppContent />
+    </AuthProvider>
   );
 }
 

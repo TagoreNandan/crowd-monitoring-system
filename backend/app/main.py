@@ -15,9 +15,12 @@ from typing import AsyncIterator
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from .db.init_db import init_db
 from .errors import install_exception_handlers
 from .logging_config import configure_logging
 from .pipeline_runtime import build_pipeline_kwargs
+from .routers import admin as admin_router
+from .routers import auth as auth_router
 from .routers import config as config_router
 from .routers import feeds as feeds_router
 from .routers import health as health_router
@@ -32,6 +35,13 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
+    # Initialize SQLite database schema and seed default administrator
+    try:
+        init_db()
+        logger.info("Database initialized successfully.")
+    except Exception:
+        logger.exception("Database initialization failed.")
+
     settings = get_settings()
     app_state = AppState(settings=settings, pipeline_kwargs=build_pipeline_kwargs())
     app.state.app_state = app_state
@@ -40,10 +50,6 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         await app_state.pipeline_runtime.ensure_ready()
         logger.info("crowd_monitoring pipeline ready.")
     except Exception:
-        # Don't crash the whole service if the model can't load at boot
-        # (e.g. offline with no cached weights) -- /api/health will
-        # honestly report model_loaded=False, and /api/jobs/image will
-        # retry the build on the next request.
         logger.exception("crowd_monitoring pipeline failed to load at startup; will retry lazily on first use.")
 
     yield
@@ -59,9 +65,7 @@ def create_app() -> FastAPI:
         title="Crowd Monitoring Platform API",
         description=(
             "FastAPI backend wrapping the crowd_monitoring AI pipeline (DM-Count density "
-            "estimation, DBSCAN clustering, rule-based risk status). In-memory "
-            "and temporary-file state only in this phase -- no database, no "
-            "object storage. See README.md for details."
+            "estimation, DBSCAN clustering, rule-based risk status)."
         ),
         version="0.1.0",
         lifespan=_lifespan,
@@ -77,6 +81,8 @@ def create_app() -> FastAPI:
 
     install_exception_handlers(app)
 
+    app.include_router(auth_router.router)
+    app.include_router(admin_router.router)
     app.include_router(health_router.router)
     app.include_router(status_router.router)
     app.include_router(config_router.router)

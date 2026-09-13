@@ -1,9 +1,13 @@
 import type {
+  ActivityLog,
+  AdminOverviewStats,
+  AuthTokenResponse,
   FeedResponse,
   JobRecordResponse,
   SystemConfig,
   SystemHealth,
   SystemStatus,
+  User,
   WSEnvelope,
 } from '../types/api';
 
@@ -171,4 +175,127 @@ export function connectWebSocket(
   };
 
   return ws;
+}
+
+/* =========================================================================
+   Authentication & Admin API
+   ========================================================================= */
+
+const TOKEN_KEY = 'cms_auth_token';
+
+export function getStoredToken(): string | null {
+  return localStorage.getItem(TOKEN_KEY);
+}
+
+export function setStoredToken(token: string): void {
+  localStorage.setItem(TOKEN_KEY, token);
+}
+
+export function removeStoredToken(): void {
+  localStorage.removeItem(TOKEN_KEY);
+}
+
+export async function loginUser(credentials: { username: string; password: string }): Promise<AuthTokenResponse> {
+  const res = await fetch(`${API_BASE}/auth/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(credentials),
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || 'Login failed');
+  }
+
+  const data: AuthTokenResponse = await res.json();
+  setStoredToken(data.access_token);
+  return data;
+}
+
+export async function registerUser(payload: {
+  username: string;
+  email: string;
+  password: string;
+  full_name?: string;
+}): Promise<User> {
+  const res = await fetch(`${API_BASE}/auth/register`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || 'Registration failed');
+  }
+
+  return res.json();
+}
+
+export async function getCurrentUser(token?: string): Promise<User> {
+  const authToken = token || getStoredToken();
+  if (!authToken) throw new Error('No authentication token found');
+
+  const res = await fetch(`${API_BASE}/auth/me`, {
+    headers: { Authorization: `Bearer ${authToken}` },
+  });
+
+  if (!res.ok) {
+    throw new Error('Failed to authenticate session');
+  }
+
+  return res.json();
+}
+
+export async function getAdminStats(token?: string): Promise<AdminOverviewStats> {
+  const authToken = token || getStoredToken();
+  const res = await fetch(`${API_BASE}/admin/stats`, {
+    headers: { Authorization: `Bearer ${authToken}` },
+  });
+
+  if (!res.ok) throw new Error('Failed to load admin stats');
+  return res.json();
+}
+
+export async function getAdminUsers(token?: string): Promise<User[]> {
+  const authToken = token || getStoredToken();
+  const res = await fetch(`${API_BASE}/admin/users`, {
+    headers: { Authorization: `Bearer ${authToken}` },
+  });
+
+  if (!res.ok) throw new Error('Failed to load user directory');
+  return res.json();
+}
+
+export async function updateAdminUser(
+  userId: number,
+  updates: { is_active?: boolean; role?: string },
+  token?: string
+): Promise<User> {
+  const authToken = token || getStoredToken();
+  const res = await fetch(`${API_BASE}/admin/users/${userId}`, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${authToken}`,
+    },
+    body: JSON.stringify(updates),
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || 'Failed to update user');
+  }
+
+  return res.json();
+}
+
+export async function getAdminActivities(limit = 50, token?: string): Promise<ActivityLog[]> {
+  const authToken = token || getStoredToken();
+  const res = await fetch(`${API_BASE}/admin/activities?limit=${limit}`, {
+    headers: { Authorization: `Bearer ${authToken}` },
+  });
+
+  if (!res.ok) throw new Error('Failed to load system activities');
+  return res.json();
 }

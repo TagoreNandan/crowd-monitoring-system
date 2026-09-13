@@ -154,3 +154,43 @@ export interface WSEnvelope {
   timestamp?: number;
   data: any;
 }
+
+export interface User {
+  id: number;
+  username: string;
+  email: string;
+  full_name?: string;
+  role: 'admin' | 'user';
+  is_active: boolean;
+  created_at: string;
+  last_login?: string | null;
+}
+
+export interface AuthTokenResponse {
+  access_token: string;
+  token_type: string;
+  username: string;
+  role: 'admin' | 'user';
+  full_name?: string;
+}
+
+export interface ActivityLog {
+  id: number;
+  user_id?: number | null;
+  username: string;
+  action: string;
+  category: string;
+  details?: string;
+  severity: 'INFO' | 'WARNING' | 'CRITICAL';
+  timestamp: string;
+}
+
+export interface AdminOverviewStats {
+  total_users: number;
+  active_users: number;
+  admin_users: number;
+  total_activities: number;
+  database_engine?: string;
+  database_status?: string;
+  recent_activities: ActivityLog[];
+}

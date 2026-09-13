@@ -28,6 +28,13 @@ class Settings(BaseSettings):
 
     log_level: str = "INFO"
 
+    # Authentication & Initial Admin configuration
+    jwt_secret_key: str = "cms-crowd-monitoring-secure-key-2026-default"
+    jwt_expire_minutes: int = 10080  # 7 days
+    admin_username: str = "admin"
+    admin_password: str = "admin123"
+    admin_email: str = "admin@cms.local"
+
     # How long an in-memory job record (and its temp working file, if any)
     # survives before being evicted. There is no persistent store in this
     # phase, so this is the only thing bounding memory/disk growth.

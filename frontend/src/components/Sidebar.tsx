@@ -1,16 +1,29 @@
 import React from 'react';
-import { LayoutDashboard, Image as ImageIcon, Video, Radio } from 'lucide-react';
+import { LayoutDashboard, Image as ImageIcon, Video, Radio, Shield, Lock } from 'lucide-react';
+import { useAuth } from '../context/AuthContext';
 
-export type ViewType = 'overview' | 'image' | 'video' | 'feed';
+export type ViewType = 'overview' | 'image' | 'video' | 'feed' | 'admin';
 
 interface SidebarProps {
   activeView: ViewType;
   onSelectView?: (view: ViewType) => void;
   onViewChange?: (view: ViewType) => void;
+  onOpenAuth?: () => void;
 }
 
-export const Sidebar: React.FC<SidebarProps> = ({ activeView, onSelectView, onViewChange }) => {
+export const Sidebar: React.FC<SidebarProps> = ({
+  activeView,
+  onSelectView,
+  onViewChange,
+  onOpenAuth,
+}) => {
+  const { isAdmin } = useAuth();
+
   const handleSelect = (view: ViewType) => {
+    if (view === 'admin' && !isAdmin) {
+      if (onOpenAuth) onOpenAuth();
+      return;
+    }
     if (onSelectView) onSelectView(view);
     if (onViewChange) onViewChange(view);
   };
@@ -25,8 +38,13 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, onSelectView, onVi
   return (
     <aside className="w-60 bg-zinc-950 border-r border-zinc-800/80 flex flex-col justify-between h-screen sticky top-0 shrink-0 select-none">
       <div>
-        {/* Clean Header Area */}
-        <div className="h-14 px-5 border-b border-zinc-800/80 flex items-center" />
+        {/* Header Area */}
+        <div className="h-14 px-5 border-b border-zinc-800/80 flex items-center justify-between">
+          <span className="text-xs font-mono font-medium text-zinc-300 tracking-wider uppercase">
+            Crowd Monitor
+          </span>
+          <span className="text-[10px] font-mono text-zinc-600">v0.1</span>
+        </div>
 
         {/* Minimal Nav List */}
         <nav className="p-2 space-y-0.5">
@@ -49,7 +67,33 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, onSelectView, onVi
               </button>
             );
           })}
+
+          <div className="pt-3 pb-1 px-3">
+            <div className="border-t border-zinc-900" />
+          </div>
+
+          {/* Admin Navigation Item */}
+          <button
+            onClick={() => handleSelect('admin')}
+            className={`w-full flex items-center justify-between px-3 py-2 rounded-md text-xs font-medium transition-colors cursor-pointer ${
+              activeView === 'admin'
+                ? 'bg-zinc-900 text-zinc-100 border border-zinc-800'
+                : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900/50'
+            }`}
+          >
+            <div className="flex items-center gap-2.5">
+              <Shield className={`w-4 h-4 ${activeView === 'admin' ? 'text-zinc-100' : 'text-zinc-500'}`} />
+              <span>Admin Console</span>
+            </div>
+            {!isAdmin && (
+              <Lock className="w-3.5 h-3.5 text-zinc-600" />
+            )}
+          </button>
         </nav>
+      </div>
+
+      <div className="p-4 border-t border-zinc-900 text-[10px] font-mono text-zinc-600">
+        AI Density & Clustering
       </div>
     </aside>
   );
