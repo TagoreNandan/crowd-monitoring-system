@@ -3,10 +3,17 @@
 from __future__ import annotations
 
 import logging
-from .session import Base, SessionLocal, engine
-from .models import User, ActivityLog, Device
-from ..auth.security import hash_password
-from ..settings import get_settings
+
+try:
+    from .session import Base, SessionLocal, engine
+    from .models import User, ActivityLog, Device
+    from ..auth.security import hash_password
+    from ..settings import get_settings
+except (ImportError, ValueError):
+    from backend.app.db.session import Base, SessionLocal, engine
+    from backend.app.db.models import User, ActivityLog, Device
+    from backend.app.auth.security import hash_password
+    from backend.app.settings import get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -74,3 +81,17 @@ def init_db() -> None:
         db.rollback()
     finally:
         db.close()
+
+
+if __name__ == "__main__":
+    import sys
+    from pathlib import Path
+
+    repo_root = Path(__file__).resolve().parents[3]
+    if str(repo_root) not in sys.path:
+        sys.path.insert(0, str(repo_root))
+
+    logging.basicConfig(level=logging.INFO)
+    init_db()
+    print("Database initialization completed successfully.")
+
