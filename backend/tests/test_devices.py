@@ -22,7 +22,7 @@ def user_token():
         "/api/auth/register",
         json={
             "username": uname,
-            "email": f"{uname}@test.local",
+            "email": f"{uname}@example.com",
             "password": "pass123456",
             "full_name": "Test Operator",
         },

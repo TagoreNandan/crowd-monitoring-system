@@ -7,6 +7,7 @@ import type {
   DeviceUpdatePayload,
   FeedResponse,
   JobRecordResponse,
+  LiveAnalyticsResponse,
   StreamProbeResult,
   SystemConfig,
   SystemHealth,
@@ -426,4 +427,19 @@ export async function testDevice(deviceId: string, token?: string): Promise<Stre
 
   return res.json();
 }
+
+export async function getLiveAnalytics(token?: string): Promise<LiveAnalyticsResponse> {
+  const authToken = token || getStoredToken();
+  const res = await fetch(`${API_BASE}/analytics/live`, {
+    headers: { Authorization: `Bearer ${authToken}` },
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || 'Failed to load live analytics');
+  }
+
+  return res.json();
+}
+
 

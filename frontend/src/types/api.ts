@@ -242,3 +242,63 @@ export interface StreamProbeResult {
   error?: string | null;
 }
 
+export interface StreamAnalyticsSnapshot {
+  feed_id: string;
+  device_id?: string | null;
+  camera_name: string;
+  location: string;
+  status: string;
+  is_live: boolean;
+  estimated_count: number;
+  visible_count?: number | null;
+  peak_count: number;
+  risk_status: string;
+  risk_score: number;
+  fps?: number | null;
+  latency_ms?: number | null;
+  frame_jpeg?: string | null;
+  heatmap_jpeg?: string | null;
+  combined_jpeg?: string | null;
+}
+
+export interface ZoneDistributionMetric {
+  zone_name: string;
+  camera_count: number;
+  crowd_count: number;
+  risk_status: string;
+  density_percent: number;
+}
+
+export interface TimelineDataPoint {
+  timestamp: string;
+  total_crowd: number;
+  visible_count: number;
+  active_streams: number;
+}
+
+export interface AnalyticsAlert {
+  id: string;
+  timestamp: string;
+  zone: string;
+  camera_name: string;
+  severity: 'INFO' | 'WARNING' | 'CRITICAL';
+  message: string;
+  crowd_count: number;
+}
+
+export interface LiveAnalyticsResponse {
+  total_crowd: number;
+  total_visible: number;
+  peak_crowd: number;
+  fleet_risk_status: string;
+  fleet_risk_score: number;
+  active_cameras_count: number;
+  total_cameras_count: number;
+  streams: StreamAnalyticsSnapshot[];
+  zones: ZoneDistributionMetric[];
+  timeline: TimelineDataPoint[];
+  recent_alerts: AnalyticsAlert[];
+  updated_at: string;
+}
+
+

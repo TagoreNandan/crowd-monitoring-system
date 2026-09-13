@@ -7,6 +7,7 @@ import { VideoView } from './views/VideoView';
 import { FeedView } from './views/FeedView';
 import { AdminView } from './views/AdminView';
 import { DeviceManagementView } from './views/DeviceManagementView';
+import { AnalyticsView } from './views/AnalyticsView';
 import { AuthModal } from './components/AuthModal';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { getHealth, getStatus, connectWebSocket } from './lib/api';
@@ -73,6 +74,7 @@ function AppContent() {
   const viewTitles: Record<ViewType, string> = {
     overview: 'Overview',
     feed: 'Real-Time Feed',
+    analytics: 'Live Multi-Stream Analytics',
     devices: 'Device Fleet Management',
     image: 'Image Analysis',
     video: 'Video Analysis',
@@ -92,6 +94,14 @@ function AppContent() {
         );
       case 'feed':
         return <FeedView initialDevice={selectedFeedDevice} />;
+      case 'analytics':
+        return (
+          <AnalyticsView
+            onFocusFeed={() => {
+              setActiveView('feed');
+            }}
+          />
+        );
       case 'devices':
         return (
           <DeviceManagementView
