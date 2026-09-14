@@ -271,9 +271,13 @@ async def create_feed(
     # would always raise (no running loop on that thread).
     loop = asyncio.get_running_loop()
     channel = connection_manager.feed_channel(feed_id)
+    sys_channel = connection_manager.system_channel()
 
     def broadcast(envelope: WSEnvelope) -> None:
         asyncio.run_coroutine_threadsafe(connection_manager.broadcast(channel, envelope), loop)
+
+    def broadcast_system(envelope: WSEnvelope) -> None:
+        asyncio.run_coroutine_threadsafe(connection_manager.broadcast(sys_channel, envelope), loop)
 
     def on_fast_result(fast: FastResult) -> None:
         try:
@@ -374,6 +378,26 @@ async def create_feed(
             _feed_latest_frames.setdefault(feed_id, {})["heatmap_jpeg"] = heatmap_jpeg
             _feed_latest_frames.setdefault(feed_id, {})["combined_jpeg"] = combined_jpeg
             broadcast(WSEnvelope(type=WSEventType.FEED_PROGRESS, job_id=feed_id, data=data))
+
+            # Broadcast to system channel for Overview dashboard real-time synchronization
+            fast_res = active_session.latest_fast_result if active_session else None
+            system_data = {
+                "feed_id": feed_id,
+                "frame_number": fast_res.frame.frame_number if fast_res else 0,
+                "timestamp_s": round(fast_res.frame.timestamp_s, 2) if fast_res else 0.0,
+                "estimated_count": count,
+                "visible_count": fast_res.visible_count if fast_res else int(count),
+                "peak_count": round(peak, 2),
+                "density": round(dcomp, 3),
+                "cluster_count": int(r.clusters.n_clusters),
+                "largest_cluster": int(r.clusters.largest_cluster_size),
+                "risk_status": str(r.risk.status),
+                "risk_score": round(float(r.risk.score), 2),
+                "latency_ms": round(fast_res.latency_ms, 2) if fast_res else 0.0,
+                "fps": round(1000.0 / fast_res.latency_ms, 2) if fast_res and fast_res.latency_ms > 0 else 30.0,
+                "frame_jpeg": _feed_latest_frames.get(feed_id, {}).get("frame_jpeg"),
+            }
+            broadcast_system(WSEnvelope(type=WSEventType.SYSTEM_METRICS, job_id=feed_id, data=system_data))
         except Exception:
             logger.exception("Error building/broadcasting density-path update for feed %s", feed_id)
 
@@ -517,5 +541,9 @@ async def stop_feed(
     await connection_manager.broadcast(
         connection_manager.feed_channel(feed_id),
         WSEnvelope(type=WSEventType.FEED_STATUS, job_id=feed_id, data={"feed_id": feed_id, "status": "stopped"}),
+    )
+    await connection_manager.broadcast(
+        connection_manager.system_channel(),
+        WSEnvelope(type=WSEventType.SYSTEM_METRICS, job_id=feed_id, data={"feed_id": feed_id, "status": "stopped"}),
     )
     return response

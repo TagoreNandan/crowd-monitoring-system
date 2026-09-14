@@ -57,8 +57,12 @@ function AppContent() {
       wsRef.current = connectWebSocket(
         '/ws/system',
         (envelope: WSEnvelope) => {
-          if (envelope.type === 'system.metrics' && envelope.data) {
-            setLatestMetrics(envelope.data);
+          if (envelope.type === 'system.metrics') {
+            if (!envelope.data || envelope.data.status === 'stopped') {
+              setLatestMetrics(null);
+            } else {
+              setLatestMetrics(envelope.data);
+            }
           }
         }
       );

@@ -37,6 +37,7 @@ class WSEventType(str, Enum):
     FEED_STATUS = "feed.status"
     FEED_PROGRESS = "feed.progress"
     FEED_ERROR = "feed.error"
+    SYSTEM_METRICS = "system.metrics"
     PING = "ping"
     PONG = "pong"
     ERROR = "error"
