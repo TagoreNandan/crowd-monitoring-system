@@ -130,6 +130,12 @@ export async function uploadFeedVideo(
   return res.json();
 }
 
+export async function listFeeds(): Promise<FeedResponse[]> {
+  const res = await fetch(`${API_BASE}/feeds`);
+  if (!res.ok) throw new Error('Failed to fetch feeds');
+  return res.json();
+}
+
 export async function getFeed(feedId: string): Promise<FeedResponse> {
   const res = await fetch(`${API_BASE}/feeds/${feedId}`);
   if (!res.ok) throw new Error(`Failed to fetch feed ${feedId}`);

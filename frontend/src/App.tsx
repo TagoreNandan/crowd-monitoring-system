@@ -93,7 +93,7 @@ function AppContent() {
           />
         );
       case 'feed':
-        return <FeedView initialDevice={selectedFeedDevice} />;
+        return null;
       case 'analytics':
         return (
           <AnalyticsView
@@ -150,7 +150,11 @@ function AppContent() {
 
         {/* Dynamic Viewport Container */}
         <main className="flex-1 overflow-y-auto bg-zinc-950">
-          {renderView()}
+          {/* Keep FeedView continuously mounted so its live WebSocket and streaming state persist across tab switches */}
+          <div className={activeView === 'feed' ? 'block' : 'hidden'}>
+            <FeedView initialDevice={selectedFeedDevice} />
+          </div>
+          {activeView !== 'feed' && renderView()}
         </main>
       </div>
 

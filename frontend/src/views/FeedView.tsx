@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Radio, Play, Square, RefreshCw, AlertCircle, Users, Eye, Camera } from 'lucide-react';
-import { createFeed, stopFeed, connectWebSocket, uploadFeedVideo, getDevices } from '../lib/api';
+import { createFeed, stopFeed, connectWebSocket, uploadFeedVideo, getDevices, listFeeds } from '../lib/api';
 import type { Device, FeedResponse, PartialFeedMetrics, VideoFrameMetrics, WSEnvelope } from '../types/api';
 import { Badge } from '../components/ui/Badge';
 import { Button } from '../components/ui/Button';
@@ -63,15 +63,8 @@ export const FeedView: React.FC<FeedViewProps> = ({ initialDevice }) => {
       .catch((err) => console.error('Failed to load enrolled camera fleet:', err));
   }, [initialDevice]);
 
-  useEffect(() => {
-    return () => {
-      intentionalStopRef.current = true;
-      if (wsRef.current) wsRef.current.close();
-      if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
-    };
-  }, []);
-
   const attachSocket = useCallback((feedId: string) => {
+    intentionalStopRef.current = false;
     if (wsRef.current) wsRef.current.close();
 
     wsRef.current = connectWebSocket(
@@ -118,12 +111,34 @@ export const FeedView: React.FC<FeedViewProps> = ({ initialDevice }) => {
         setConnectionState('RECONNECTING');
         reconnectAttemptsRef.current += 1;
         reconnectTimerRef.current = setTimeout(() => {
-          if (!intentionalStopRef.current && feedIdRef.current === feedId) {
-            attachSocket(feedId);
+          if (!intentionalStopRef.current && feedIdRef.current) {
+            attachSocket(feedIdRef.current);
           }
-        }, 1000 * reconnectAttemptsRef.current);
+        }, 2000);
       }
     );
+  }, []);
+
+  useEffect(() => {
+    listFeeds()
+      .then((feeds) => {
+        const running = feeds.find((f) => f.status === 'running');
+        if (running && !activeFeed) {
+          setActiveFeed(running);
+          feedIdRef.current = running.feed_id;
+          setSourceType(running.source_type);
+          setConnectionState('CONNECTING');
+          attachSocket(running.feed_id);
+        }
+      })
+      .catch((err) => console.error('Failed to check running feeds:', err));
+  }, [attachSocket]);
+
+  useEffect(() => {
+    return () => {
+      if (wsRef.current) wsRef.current.close();
+      if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
+    };
   }, []);
 
   const handleStartFeed = async () => {

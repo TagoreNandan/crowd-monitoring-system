@@ -60,6 +60,7 @@ router = APIRouter(prefix="/api/feeds", tags=["feeds"])
 # analytics semantics).
 _active_feeds: dict[str, RealtimeFeedSession] = {}
 _feed_peaks: dict[str, float] = {}
+_feed_latest_frames: dict[str, dict[str, str]] = {}
 
 
 class CreateFeedRequest(BaseModel):
@@ -318,6 +319,7 @@ async def create_feed(
                 "fps": round(1000.0 / fast.latency_ms, 2) if fast.latency_ms > 0 else None,
                 "frame_jpeg": frame_jpeg,
             }
+            _feed_latest_frames.setdefault(feed_id, {})["frame_jpeg"] = frame_jpeg
             broadcast(WSEnvelope(type=WSEventType.FEED_PROGRESS, job_id=feed_id, data=data))
         except Exception:
             logger.exception("Error building/broadcasting fast-path frame for feed %s", feed_id)
@@ -369,6 +371,8 @@ async def create_feed(
                 "heatmap_jpeg": heatmap_jpeg,
                 "combined_jpeg": combined_jpeg,
             }
+            _feed_latest_frames.setdefault(feed_id, {})["heatmap_jpeg"] = heatmap_jpeg
+            _feed_latest_frames.setdefault(feed_id, {})["combined_jpeg"] = combined_jpeg
             broadcast(WSEnvelope(type=WSEventType.FEED_PROGRESS, job_id=feed_id, data=data))
         except Exception:
             logger.exception("Error building/broadcasting density-path update for feed %s", feed_id)
@@ -500,6 +504,9 @@ async def stop_feed(
     if sess is None:
         raise HTTPException(status_code=404, detail=f"Feed '{feed_id}' not found")
     sess.stop()
+    _active_feeds.pop(feed_id, None)
+    _feed_peaks.pop(feed_id, None)
+    _feed_latest_frames.pop(feed_id, None)
     tmp_path = getattr(sess, "_temp_upload_path", None)
     if tmp_path is not None and isinstance(tmp_path, Path):
         try:

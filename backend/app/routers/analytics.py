@@ -16,7 +16,7 @@ from typing import Deque, Dict, List, Optional
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
-from ..auth.dependencies import get_current_user
+from ..auth.dependencies import get_current_user_optional
 from ..db.models import Device, User
 from ..db.session import get_db
 from ..schemas.analytics import (
@@ -49,22 +49,22 @@ RISK_PRIORITY = {
 def _get_active_feed_sessions():
     """Retrieve active feed sessions dictionary from feeds router."""
     try:
-        from .feeds import _active_feeds, _feed_peaks
-        return _active_feeds, _feed_peaks
+        from .feeds import _active_feeds, _feed_peaks, _feed_latest_frames
+        return _active_feeds, _feed_peaks, _feed_latest_frames
     except Exception as exc:
         logger.warning(f"Unable to read active feeds store: {exc}")
-        return {}, {}
+        return {}, {}, {}
 
 
 @router.get("/live", response_model=LiveAnalyticsResponse)
 def get_live_analytics(
-    current_user: User = Depends(get_current_user),
+    current_user: Optional[User] = Depends(get_current_user_optional),
     db: Session = Depends(get_db),
 ):
     """Returns aggregated real-time analytics across all active camera streams."""
     global _fleet_peak_crowd
 
-    active_feeds, feed_peaks = _get_active_feed_sessions()
+    active_feeds, feed_peaks, feed_latest_frames = _get_active_feed_sessions()
     enrolled_devices = db.query(Device).all()
     device_lookup: Dict[str, Device] = {d.device_id: d for d in enrolled_devices}
     url_lookup: Dict[str, Device] = {d.stream_url: d for d in enrolled_devices}
@@ -85,22 +85,29 @@ def get_live_analytics(
         density = session.latest_density_result
 
         # Identify linked device metadata if present
-        source_uri = session.metadata.source_uri or ""
-        matched_dev = url_lookup.get(source_uri)
+        meta = session.metadata
+        desc = meta.description if meta else ""
+        matched_dev = url_lookup.get(desc)
+        if not matched_dev:
+            for dev in enrolled_devices:
+                if dev.stream_url in desc or dev.device_id in desc:
+                    matched_dev = dev
+                    break
 
         est_count = float(density.result.inference.count) if density else 0.0
-        vis_count = int(fast.result.count) if fast else (int(est_count) if est_count > 0 else 0)
+        vis_count = int(fast.visible_count) if (fast and fast.visible_count is not None) else (int(est_count) if est_count > 0 else 0)
         peak_count = float(feed_peaks.get(feed_id, est_count))
 
         risk_status = str(density.result.risk.status).upper() if density else "SAFE"
         risk_score = float(density.result.risk.score) if density else 0.0
-        fps = float(fast.frame.fps) if (fast and fast.frame.fps) else (float(session.metadata.fps) if session.metadata.fps else 30.0)
-        latency = float(fast.result.detector_latency_ms) if (fast and fast.result.detector_latency_ms) else 80.0
+        fps = float(meta.fps) if (meta and meta.fps) else (round(1000.0 / fast.latency_ms, 1) if (fast and fast.latency_ms > 0) else 30.0)
+        latency = float(fast.latency_ms) if fast else 80.0
 
-        # Base64 JPEG frame artifacts
-        frame_jpeg = session.latest_fast_jpeg
-        heatmap_jpeg = session.latest_heatmap_jpeg
-        combined_jpeg = session.latest_combined_jpeg
+        # Base64 JPEG frame artifacts from latest feed cache
+        frames = feed_latest_frames.get(feed_id, {})
+        frame_jpeg = frames.get("frame_jpeg")
+        heatmap_jpeg = frames.get("heatmap_jpeg")
+        combined_jpeg = frames.get("combined_jpeg")
 
         total_crowd += est_count
         total_visible += vis_count
@@ -111,7 +118,7 @@ def get_live_analytics(
             highest_risk_priority = current_pri
             highest_risk_status = risk_status
 
-        camera_name = matched_dev.name if matched_dev else f"Stream ({session.metadata.source_type})"
+        camera_name = matched_dev.name if matched_dev else f"Stream ({feed_id})"
         location = matched_dev.location if matched_dev else "Main Concourse"
 
         # Generate alert if high crowd or critical risk detected
@@ -137,8 +144,8 @@ def get_live_analytics(
                 device_id=matched_dev.device_id if matched_dev else None,
                 camera_name=camera_name,
                 location=location,
-                status="LIVE" if session.is_alive else "STOPPED",
-                is_live=session.is_alive,
+                status="LIVE" if session.is_running else "STOPPED",
+                is_live=session.is_running,
                 estimated_count=round(est_count, 1),
                 visible_count=vis_count,
                 peak_count=round(peak_count, 1),
