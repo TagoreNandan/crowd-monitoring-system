@@ -38,7 +38,7 @@ def _resolve_youtube_stream_url(url: str) -> str:
     try:
         import yt_dlp
         ydl_opts = {
-            "format": "best[ext=mp4]/best",
+            "format": "bestvideo[height<=1080]/bestvideo/best",
             "quiet": True,
             "no_warnings": True,
             "noplaylist": True,
@@ -49,7 +49,9 @@ def _resolve_youtube_stream_url(url: str) -> str:
                 if "url" in info:
                     return info["url"]
                 elif "entries" in info and len(info["entries"]) > 0:
-                    return info["entries"][0].get("url", url)
+                    first = info["entries"][0]
+                    if isinstance(first, dict) and "url" in first:
+                        return first["url"]
     except Exception as e:
         logger.warning(f"Failed to resolve YouTube stream URL via yt-dlp: {e}")
     return url

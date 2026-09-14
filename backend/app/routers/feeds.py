@@ -154,7 +154,7 @@ def _resolve_youtube_stream_url(url: str) -> str:
     try:
         import yt_dlp
         ydl_opts = {
-            "format": "best[ext=mp4]/best",
+            "format": "bestvideo[height<=1080]/bestvideo/best",
             "quiet": True,
             "no_warnings": True,
             "noplaylist": True,
@@ -165,10 +165,25 @@ def _resolve_youtube_stream_url(url: str) -> str:
                 if "url" in info:
                     return info["url"]
                 elif "entries" in info and len(info["entries"]) > 0:
-                    return info["entries"][0].get("url", url)
+                    first = info["entries"][0]
+                    if isinstance(first, dict) and "url" in first:
+                        return first["url"]
+    except HTTPException:
+        raise
     except Exception as e:
         logger.warning(f"Failed to resolve YouTube stream URL via yt-dlp: {e}")
-    return url
+        msg = str(e)
+        if "This video is unavailable" in msg:
+            raise HTTPException(
+                status_code=400,
+                detail="YouTube video is unavailable. Please verify the URL and casing (YouTube video IDs are case-sensitive).",
+            ) from e
+        err_line = msg.splitlines()[-1] if msg else "unknown error"
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unable to extract video stream from YouTube URL: {err_line}",
+        ) from e
+    raise HTTPException(status_code=400, detail="Could not extract video stream from the provided YouTube URL.")
 
 
 def _resolve_source(source_type: str, source_uri: Optional[str]) -> FrameSource:
