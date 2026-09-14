@@ -149,22 +149,55 @@ def _build_feed_response(session: RealtimeFeedSession, source_type: str) -> Feed
     )
 
 
+def _resolve_youtube_stream_url(url: str) -> str:
+    """Extract direct media stream URL from a YouTube URL via yt-dlp."""
+    try:
+        import yt_dlp
+        ydl_opts = {
+            "format": "best[ext=mp4]/best",
+            "quiet": True,
+            "no_warnings": True,
+            "noplaylist": True,
+        }
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+            if info:
+                if "url" in info:
+                    return info["url"]
+                elif "entries" in info and len(info["entries"]) > 0:
+                    return info["entries"][0].get("url", url)
+    except Exception as e:
+        logger.warning(f"Failed to resolve YouTube stream URL via yt-dlp: {e}")
+    return url
+
+
 def _resolve_source(source_type: str, source_uri: Optional[str]) -> FrameSource:
     if source_type == "camera":
         idx = int(source_uri) if source_uri and source_uri.isdigit() else 0
         return CameraSource(device_index=idx)
-    if source_type in ("rtsp", "rtmp"):
+
+    # Automatically resolve YouTube URLs for RTSP/RTMP or direct links
+    if source_uri and ("youtube.com" in source_uri or "youtu.be" in source_uri):
+        resolved_stream = _resolve_youtube_stream_url(source_uri)
+        return RTSPSource(url=resolved_stream)
+
+    if source_type in ("rtsp", "rtmp", "youtube"):
         if not source_uri:
-            raise HTTPException(status_code=400, detail="RTSP/RTMP source_uri is required")
+            raise HTTPException(status_code=400, detail="RTSP/RTMP stream URL is required")
         return RTSPSource(url=source_uri)
+
     if source_type in ("video", "sample"):
         sample_path = Path(source_uri) if source_uri else Path("examples/sample_crowd.mp4")
         if not sample_path.exists():
-            candidates = list(Path(".").glob("**/*.mp4"))
-            if candidates:
-                sample_path = candidates[0]
+            default_sample = Path("examples/sample_crowd.mp4")
+            if default_sample.exists():
+                sample_path = default_sample
             else:
-                raise HTTPException(status_code=404, detail=f"Sample video path not found: {sample_path}")
+                candidates = list(Path(".").glob("**/*.mp4"))
+                if candidates:
+                    sample_path = candidates[0]
+                else:
+                    raise HTTPException(status_code=404, detail=f"Sample video path not found: {sample_path}")
         return FileVideoSource(sample_path)
     raise HTTPException(status_code=400, detail=f"Unsupported source_type '{source_type}'")
 

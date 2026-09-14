@@ -33,13 +33,40 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/devices", tags=["devices"])
 
 
+def _resolve_youtube_stream_url(url: str) -> str:
+    """Extract direct media stream URL from a YouTube URL via yt-dlp."""
+    try:
+        import yt_dlp
+        ydl_opts = {
+            "format": "best[ext=mp4]/best",
+            "quiet": True,
+            "no_warnings": True,
+            "noplaylist": True,
+        }
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+            if info:
+                if "url" in info:
+                    return info["url"]
+                elif "entries" in info and len(info["entries"]) > 0:
+                    return info["entries"][0].get("url", url)
+    except Exception as e:
+        logger.warning(f"Failed to resolve YouTube stream URL via yt-dlp: {e}")
+    return url
+
+
 def _probe_stream_sync(stream_url: str, stream_type: str) -> dict:
     """Synchronous worker to test OpenCV stream readability."""
     t0 = time.time()
     cap = None
     try:
-        # If stream_type is webcam index, parse as int
-        source: Any = int(stream_url) if stream_url.isdigit() else stream_url
+        if "youtube.com" in stream_url or "youtu.be" in stream_url:
+            source: Any = _resolve_youtube_stream_url(stream_url)
+        elif stream_url.isdigit():
+            source = int(stream_url)
+        else:
+            source = stream_url
+
         cap = cv2.VideoCapture(source)
 
         # Set connection timeouts if supported by OpenCV backend

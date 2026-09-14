@@ -66,7 +66,7 @@ def init_db() -> None:
                 description="High-definition 4K sample surveillance feed for crowd monitoring.",
                 location="Main Terminal Gate 3",
                 stream_type="VIDEO_FILE",
-                stream_url="dashboard/static/uploads/077cc45b94_14968235_2160_3840_60fps.mp4",
+                stream_url="examples/sample_crowd.mp4",
                 status="ONLINE",
                 fps=60.0,
                 resolution="3840x2160",

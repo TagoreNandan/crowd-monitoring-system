@@ -18,7 +18,7 @@ export const FeedView: React.FC<FeedViewProps> = ({ initialDevice }) => {
   const [enrolledDevices, setEnrolledDevices] = useState<Device[]>([]);
   const [selectedDeviceId, setSelectedDeviceId] = useState<string>('');
   const [sourceType, setSourceType] = useState<string>('sample');
-  const [sourceUri, setSourceUri] = useState<string>('dashboard/static/uploads/077cc45b94_14968235_2160_3840_60fps.mp4');
+  const [sourceUri, setSourceUri] = useState<string>('examples/sample_crowd.mp4');
   const [feedUploadFile, setFeedUploadFile] = useState<File | null>(null);
 
   const [activeFeed, setActiveFeed] = useState<FeedResponse | null>(null);
@@ -368,8 +368,8 @@ export const FeedView: React.FC<FeedViewProps> = ({ initialDevice }) => {
                 >
                   <option value="upload">Upload Video File</option>
                   <option value="sample">Sample Video File</option>
-                  <option value="camera">Local USB Camera</option>
-                  <option value="rtsp">RTSP / RTMP Stream</option>
+                  <option value="camera">Local USB Camera (index 0, 1...)</option>
+                  <option value="rtsp">RTSP / RTMP / YouTube Stream</option>
                 </select>
               </div>
 
@@ -391,11 +391,24 @@ export const FeedView: React.FC<FeedViewProps> = ({ initialDevice }) => {
                   </div>
                 ) : (
                   <div>
-                    <label className="text-zinc-400 block mb-1">Source URI / Path</label>
+                    <label className="text-zinc-400 block mb-1">
+                      {sourceType === 'camera'
+                        ? 'Camera Index (e.g. 0 or 1)'
+                        : sourceType === 'sample'
+                        ? 'Local Video File Path'
+                        : 'Stream URL (RTSP, RTMP, or YouTube URL)'}
+                    </label>
                     <input
                       type="text"
                       value={sourceUri}
                       onChange={(e) => setSourceUri(e.target.value)}
+                      placeholder={
+                        sourceType === 'camera'
+                          ? '0'
+                          : sourceType === 'sample'
+                          ? 'examples/sample_crowd.mp4'
+                          : 'rtsp://... or https://www.youtube.com/watch?v=...'
+                      }
                       disabled={activeFeed !== null}
                       className="w-full bg-zinc-950 border border-zinc-800 rounded px-2.5 py-1.5 text-zinc-200 font-mono text-xs focus:outline-none focus:border-zinc-700"
                     />
