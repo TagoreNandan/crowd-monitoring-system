@@ -41,8 +41,8 @@ export const TopBar: React.FC<TopBarProps> = ({
               </div>
               <div className="flex flex-col text-left">
                 <span className="font-medium text-zinc-200 leading-none">{user.username}</span>
-                <span className="text-[10px] uppercase font-mono text-zinc-500 leading-tight">
-                  {user.role}
+                <span className="text-[10px] uppercase font-mono text-zinc-400 font-semibold leading-tight">
+                  {user.role === 'admin' ? 'ADMIN' : 'ANALYST'}
                 </span>
               </div>
             </div>

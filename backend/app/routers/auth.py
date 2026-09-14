@@ -43,7 +43,7 @@ def register(
         email=req.email,
         full_name=req.full_name or "",
         hashed_password=hash_password(req.password),
-        role="user",
+        role="analyst",
         is_active=True,
     )
     db.add(user)

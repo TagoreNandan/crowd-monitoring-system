@@ -19,7 +19,7 @@ class User(Base):
     email = Column(String(100), unique=True, index=True, nullable=False)
     full_name = Column(String(100), nullable=True, default="")
     hashed_password = Column(String(255), nullable=False)
-    role = Column(String(20), nullable=False, default="user")  # "admin" | "user"
+    role = Column(String(20), nullable=False, default="analyst")  # "admin" | "analyst"
     is_active = Column(Boolean, default=True, nullable=False)
     created_at = Column(DateTime, default=utcnow, nullable=False)
     last_login = Column(DateTime, nullable=True)

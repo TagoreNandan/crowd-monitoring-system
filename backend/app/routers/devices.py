@@ -17,7 +17,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import desc, func
 from sqlalchemy.orm import Session
 
-from ..auth.dependencies import get_current_user, log_activity, require_admin
+from ..auth.dependencies import get_current_user, get_current_user_optional, log_activity, require_admin
 from ..db.models import Device, User
 from ..db.session import get_db
 from ..schemas.device import (
@@ -128,10 +128,10 @@ def list_devices(
     search: Optional[str] = Query(None, description="Search by name, ID, or location"),
     status_filter: Optional[str] = Query(None, alias="status"),
     stream_type: Optional[str] = Query(None),
-    current_user: User = Depends(get_current_user),
+    current_user: Optional[User] = Depends(get_current_user_optional),
     db: Session = Depends(get_db),
 ):
-    """List registered camera devices. Accessible to all authenticated operators."""
+    """List registered camera devices. Accessible to all authenticated operators and analysts."""
     query = db.query(Device)
 
     if status_filter and status_filter.upper() != "ALL":
@@ -154,7 +154,7 @@ def list_devices(
 @router.get("/{device_id}", response_model=DeviceResponse)
 def get_device(
     device_id: str,
-    current_user: User = Depends(get_current_user),
+    current_user: Optional[User] = Depends(get_current_user_optional),
     db: Session = Depends(get_db),
 ):
     """Retrieve details of a single device by ID."""

@@ -78,7 +78,7 @@ export const DeviceManagementView: React.FC<DeviceManagementViewProps> = ({ onSe
 
   useEffect(() => {
     loadDevices();
-  }, [statusFilter, protocolFilter, searchQuery]);
+  }, [statusFilter, protocolFilter, searchQuery, token]);
 
   const handleRefresh = () => {
     setRefreshing(true);
