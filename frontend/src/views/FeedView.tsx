@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Radio, Play, Square, RefreshCw, AlertCircle, Users, Eye, Camera, CheckCircle2 } from 'lucide-react';
+import { Radio, Play, Square, RefreshCw, AlertCircle, Users, Eye, Camera } from 'lucide-react';
 import { createFeed, stopFeed, connectWebSocket, uploadFeedVideo, getDevices } from '../lib/api';
 import type { Device, FeedResponse, PartialFeedMetrics, VideoFrameMetrics, WSEnvelope } from '../types/api';
 import { Badge } from '../components/ui/Badge';

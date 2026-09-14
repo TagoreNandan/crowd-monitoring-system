@@ -11,13 +11,10 @@ import {
   Search,
   Wifi,
   WifiOff,
-  Activity,
   Radio,
-  Sliders,
   X,
-  ExternalLink,
 } from 'lucide-react';
-import type { Device, DeviceCreatePayload, DeviceUpdatePayload, StreamProbeResult } from '../types/api';
+import type { Device, DeviceCreatePayload, StreamProbeResult } from '../types/api';
 import { getDevices, createDevice, updateDevice, deleteDevice, testDevice, probeStream } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
 import { Badge } from '../components/ui/Badge';
@@ -28,7 +25,7 @@ interface DeviceManagementViewProps {
 }
 
 export const DeviceManagementView: React.FC<DeviceManagementViewProps> = ({ onSelectDeviceForFeed }) => {
-  const { user, isAdmin, token } = useAuth();
+  const { isAdmin, token } = useAuth();
   const [devices, setDevices] = useState<Device[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [refreshing, setRefreshing] = useState<boolean>(false);

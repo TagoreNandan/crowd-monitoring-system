@@ -24,7 +24,7 @@ class Settings(BaseSettings):
     # Comma-separated list of allowed CORS origins. Defaults to the two
     # ports Vite's dev server commonly uses; production origins must be
     # supplied via CROWD_MONITORING_BACKEND_CORS_ALLOW_ORIGINS, never hardcoded.
-    cors_allow_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
+    cors_allow_origins: str = "http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000,http://127.0.0.1:3000"
 
     log_level: str = "INFO"
 

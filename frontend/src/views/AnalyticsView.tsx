@@ -10,14 +10,11 @@ import {
   TrendingUp,
   MapPin,
   Camera,
-  Layers,
-  Flame,
   ShieldCheck,
   ShieldAlert,
-  ArrowUpRight,
   Maximize2,
 } from 'lucide-react';
-import type { LiveAnalyticsResponse, StreamAnalyticsSnapshot } from '../types/api';
+import type { LiveAnalyticsResponse } from '../types/api';
 import { getLiveAnalytics } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
 import { Badge } from '../components/ui/Badge';
@@ -34,7 +31,6 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({ onFocusFeed }) => 
   const [data, setData] = useState<LiveAnalyticsResponse | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [refreshing, setRefreshing] = useState<boolean>(false);
-  const [activeTab, setActiveTab] = useState<'wall' | 'trends' | 'zones'>('wall');
   const [cardModes, setCardModes] = useState<Record<string, CardViewMode>>({});
   const intervalRef = useRef<any>(null);
 
@@ -247,7 +243,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({ onFocusFeed }) => 
             {chartPoints ? (
               <svg
                 viewBox="0 0 600 140"
-                className="w-full h-full overflow-visible"
+                className="w-full h-full overflow-hidden"
                 preserveAspectRatio="none"
               >
                 <defs>
@@ -278,22 +274,31 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({ onFocusFeed }) => 
                   points={chartPoints}
                 />
 
-                {/* Blinking Live Point on latest reading */}
-                {data && data.timeline && data.timeline.length > 0 && (
-                  <circle
-                    cx="600"
-                    cy={
-                      140 -
-                      (data.timeline[data.timeline.length - 1].total_crowd /
-                        Math.max(...data.timeline.map((t) => t.total_crowd), 20)) *
-                        120 -
-                      10
-                    }
-                    r="4"
-                    fill="#34d399"
-                    className="animate-ping"
-                  />
-                )}
+                {/* Pulsing Live Point on latest reading */}
+                {data && data.timeline && data.timeline.length > 0 && (() => {
+                  const latestVal = data.timeline[data.timeline.length - 1].total_crowd;
+                  const maxVal = Math.max(...data.timeline.map((t) => t.total_crowd), 20);
+                  const cy = 140 - (latestVal / maxVal) * 120 - 10;
+                  return (
+                    <g>
+                      <circle cx="595" cy={cy} r="4" fill="#10b981" />
+                      <circle cx="595" cy={cy} r="8" fill="#10b981" opacity="0.3">
+                        <animate
+                          attributeName="r"
+                          values="4;9;4"
+                          dur="1.8s"
+                          repeatCount="indefinite"
+                        />
+                        <animate
+                          attributeName="opacity"
+                          values="0.5;0.1;0.5"
+                          dur="1.8s"
+                          repeatCount="indefinite"
+                        />
+                      </circle>
+                    </g>
+                  );
+                })()}
               </svg>
             ) : (
               <div className="h-full flex items-center justify-center text-xs font-mono text-zinc-500">
