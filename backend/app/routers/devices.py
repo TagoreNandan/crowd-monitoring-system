@@ -173,17 +173,18 @@ async def probe_stream(
     admin: User = Depends(require_admin),
 ):
     """Admin-only: Probes a candidate stream URL to verify connectivity and report resolution/fps."""
+    timeout_s = 15.0 if ("youtube.com" in req.stream_url or "youtu.be" in req.stream_url or req.stream_type.upper() == "YOUTUBE") else 8.0
     try:
         res = await asyncio.wait_for(
             asyncio.to_thread(_probe_stream_sync, req.stream_url, req.stream_type),
-            timeout=5.0,
+            timeout=timeout_s,
         )
         return StreamProbeResponse(**res)
     except asyncio.TimeoutError:
         return StreamProbeResponse(
             is_reachable=False,
-            latency_ms=5000.0,
-            error="Connection probe timed out (stream host unreachable)",
+            latency_ms=timeout_s * 1000.0,
+            error=f"Connection probe timed out after {int(timeout_s)}s (stream host unreachable)",
         )
     except Exception as exc:
         return StreamProbeResponse(
@@ -211,12 +212,13 @@ async def create_device(
     fps = req.fps
     device_status = req.status or "ONLINE"
 
-    # Attempt a quick non-blocking probe to verify stream if resolution not provided
+    # Attempt a quick probe to verify stream if resolution not provided
     if not resolution:
+        timeout_s = 15.0 if ("youtube.com" in req.stream_url or "youtu.be" in req.stream_url or req.stream_type.upper() == "YOUTUBE") else 6.0
         try:
             probe = await asyncio.wait_for(
                 asyncio.to_thread(_probe_stream_sync, req.stream_url, req.stream_type),
-                timeout=3.0,
+                timeout=timeout_s,
             )
             if probe.get("is_reachable"):
                 resolution = probe.get("resolution") or ""
@@ -347,10 +349,11 @@ async def test_device(
             detail=f"Device '{device_id}' not found",
         )
 
+    timeout_s = 15.0 if ("youtube.com" in device.stream_url or "youtu.be" in device.stream_url or device.stream_type.upper() == "YOUTUBE") else 8.0
     try:
         res = await asyncio.wait_for(
             asyncio.to_thread(_probe_stream_sync, device.stream_url, device.stream_type),
-            timeout=5.0,
+            timeout=timeout_s,
         )
         probe = StreamProbeResponse(**res)
         if probe.is_reachable:
@@ -370,8 +373,8 @@ async def test_device(
         db.commit()
         return StreamProbeResponse(
             is_reachable=False,
-            latency_ms=5000.0,
-            error="Connection probe timed out (stream host unreachable)",
+            latency_ms=timeout_s * 1000.0,
+            error=f"Connection probe timed out after {int(timeout_s)}s (stream host unreachable)",
         )
     except Exception as exc:
         device.status = "ERROR"

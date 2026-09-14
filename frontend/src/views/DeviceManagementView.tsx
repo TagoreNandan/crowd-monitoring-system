@@ -358,6 +358,7 @@ export const DeviceManagementView: React.FC<DeviceManagementViewProps> = ({ onSe
             className="px-2.5 py-1.5 text-xs bg-zinc-950/60 border border-zinc-800/80 rounded-md text-zinc-300 focus:outline-none focus:border-zinc-600 font-mono"
           >
             <option value="ALL">All Protocols</option>
+            <option value="YOUTUBE">YouTube Live / Video</option>
             <option value="RTSP">RTSP</option>
             <option value="WEBCAM">Webcam</option>
             <option value="HTTP_HLS">HTTP / HLS</option>
@@ -613,6 +614,7 @@ export const DeviceManagementView: React.FC<DeviceManagementViewProps> = ({ onSe
                     className="w-full px-3 py-1.5 text-xs font-mono bg-zinc-900 border border-zinc-800 rounded-md text-zinc-100 focus:outline-none focus:border-zinc-600"
                   >
                     <option value="RTSP">RTSP (Network IP Camera)</option>
+                    <option value="YOUTUBE">YouTube Live / Video Stream</option>
                     <option value="WEBCAM">Webcam / USB Capture</option>
                     <option value="HTTP_HLS">HTTP / HLS Stream</option>
                     <option value="VIDEO_FILE">Local Video File / Sample</option>
@@ -642,10 +644,12 @@ export const DeviceManagementView: React.FC<DeviceManagementViewProps> = ({ onSe
                   value={modalForm.stream_url}
                   onChange={(e) => setModalForm({ ...modalForm, stream_url: e.target.value })}
                   placeholder={
-                    modalForm.stream_type === 'WEBCAM'
+                    modalForm.stream_type === 'YOUTUBE'
+                      ? 'https://www.youtube.com/watch?v=...'
+                      : modalForm.stream_type === 'WEBCAM'
                       ? '0 (Device Index)'
                       : modalForm.stream_type === 'VIDEO_FILE'
-                      ? 'dashboard/static/uploads/sample.mp4'
+                      ? 'examples/sample_crowd.mp4'
                       : 'rtsp://admin:pass@192.168.1.100:554/stream1'
                   }
                   className="w-full px-3 py-1.5 text-xs font-mono bg-zinc-900 border border-zinc-800 rounded-md text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-zinc-600"

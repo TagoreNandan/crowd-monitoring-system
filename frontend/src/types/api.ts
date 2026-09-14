@@ -201,7 +201,7 @@ export interface Device {
   name: string;
   description?: string;
   location: string;
-  stream_type: 'RTSP' | 'WEBCAM' | 'HTTP_HLS' | 'VIDEO_FILE' | string;
+  stream_type: 'RTSP' | 'WEBCAM' | 'HTTP_HLS' | 'VIDEO_FILE' | 'YOUTUBE' | string;
   stream_url: string;
   status: 'ONLINE' | 'STANDBY' | 'OFFLINE' | 'MAINTENANCE' | 'ERROR' | string;
   fps?: number | null;
