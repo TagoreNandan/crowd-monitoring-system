@@ -207,7 +207,7 @@ export const VideoView: React.FC = () => {
               </div>
             ) : isCompleted ? (
               /* Real output video for the selected view: person boxes,
-                 real DM-Count heatmap, or both -- baked in server-side,
+                 density heatmap, or both -- baked in server-side,
                  never re-derived client-side. */
               <div className="w-full h-full flex flex-col items-center justify-center">
                 <video
@@ -276,7 +276,7 @@ export const VideoView: React.FC = () => {
             <div className="text-4xl font-semibold font-mono text-zinc-100">
               {metrics?.estimated_count ?? '—'}
             </div>
-            <p className="text-xs text-zinc-500">DM-Count dense regression (periodic)</p>
+            <p className="text-xs text-zinc-500">Density regression (periodic)</p>
           </div>
 
           {/* Visible People */}
@@ -288,7 +288,7 @@ export const VideoView: React.FC = () => {
             <div className="text-3xl font-semibold font-mono text-zinc-200">
               {metrics?.visible_count !== undefined && metrics?.visible_count !== null ? metrics.visible_count : 'N/A'}
             </div>
-            <p className="text-xs text-zinc-500">YOLOv8 person detections (periodic, held between passes)</p>
+            <p className="text-xs text-zinc-500">Person detections (periodic, held between passes)</p>
           </div>
 
           {/* Risk Level */}

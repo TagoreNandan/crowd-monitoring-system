@@ -241,7 +241,7 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
               <ArrowRight className="w-4 h-4 text-zinc-500 group-hover:text-zinc-300 group-hover:translate-x-0.5 transition-all" />
             </div>
             <p className="text-xs text-zinc-500 leading-relaxed">
-              High-resolution DM-Count spatial density regression & keypoint localization.
+              High-resolution spatial density regression & keypoint localization.
             </p>
           </div>
 
@@ -257,7 +257,7 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
               <ArrowRight className="w-4 h-4 text-zinc-500 group-hover:text-zinc-300 group-hover:translate-x-0.5 transition-all" />
             </div>
             <p className="text-xs text-zinc-500 leading-relaxed">
-              Async frame processing, YOLOv8n bounding boxes & IoU tracking trails.
+              Async frame processing, neural bounding boxes & IoU tracking trails.
             </p>
           </div>
 
@@ -287,12 +287,12 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
 
         <div className="p-4 rounded-lg bg-zinc-900/30 border border-zinc-800/80 grid grid-cols-2 sm:grid-cols-4 gap-4 text-xs">
           <div>
-            <span className="text-zinc-500 block">Dense Model</span>
-            <span className="text-zinc-200 font-medium font-mono">DM-Count (QNRF)</span>
+            <span className="text-zinc-500 block">Density Estimator</span>
+            <span className="text-zinc-200 font-medium font-mono">Neural Regressor</span>
           </div>
           <div>
             <span className="text-zinc-500 block">Person Detector</span>
-            <span className="text-zinc-200 font-medium font-mono">YOLOv8n</span>
+            <span className="text-zinc-200 font-medium font-mono">Optical Detector</span>
           </div>
           <div>
             <span className="text-zinc-500 block">Hardware Accelerator</span>
