@@ -1,33 +1,32 @@
 import { useState, useEffect, useRef } from 'react';
 import { Sidebar, type ViewType } from './components/Sidebar';
 import { TopBar } from './components/TopBar';
-import { OverviewView } from './views/OverviewView';
 import { ImageView } from './views/ImageView';
 import { VideoView } from './views/VideoView';
 import { FeedView } from './views/FeedView';
 import { AdminView } from './views/AdminView';
 import { DeviceManagementView } from './views/DeviceManagementView';
 import { AnalyticsView } from './views/AnalyticsView';
+import { LoginView } from './views/LoginView';
 import { AuthModal } from './components/AuthModal';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { getHealth, getStatus, connectWebSocket } from './lib/api';
-import type { Device, SystemHealth, SystemStatus, VideoFrameMetrics, WSEnvelope } from './types/api';
+import type { Device, SystemHealth, SystemStatus, WSEnvelope } from './types/api';
 
 function AppContent() {
-  const [activeView, setActiveView] = useState<ViewType>('overview');
+  const { user, isAdmin, isLoading } = useAuth();
+  const [activeView, setActiveView] = useState<ViewType>('dashboard');
   const [selectedFeedDevice, setSelectedFeedDevice] = useState<Device | null>(null);
   const [health, setHealth] = useState<SystemHealth | null>(null);
   const [status, setStatus] = useState<SystemStatus | null>(null);
-  const [latestMetrics, setLatestMetrics] = useState<VideoFrameMetrics | null>(null);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
 
-  const { isAdmin } = useAuth();
   const wsRef = useRef<WebSocket | null>(null);
 
-  // If user loses admin privileges while on admin page, switch to overview
+  // If user loses admin privileges while on admin page, switch to dashboard
   useEffect(() => {
     if (activeView === 'admin' && !isAdmin) {
-      setActiveView('overview');
+      setActiveView('dashboard');
     }
   }, [isAdmin, activeView]);
 
@@ -56,14 +55,8 @@ function AppContent() {
     try {
       wsRef.current = connectWebSocket(
         '/ws/system',
-        (envelope: WSEnvelope) => {
-          if (envelope.type === 'system.metrics') {
-            if (!envelope.data || envelope.data.status === 'stopped') {
-              setLatestMetrics(null);
-            } else {
-              setLatestMetrics(envelope.data);
-            }
-          }
+        (_envelope: WSEnvelope) => {
+          // System channel heartbeat / telemetry
         }
       );
     } catch (e) {
@@ -76,9 +69,10 @@ function AppContent() {
   }, []);
 
   const viewTitles: Record<ViewType, string> = {
-    overview: 'Overview',
+    dashboard: 'Live Analytics Dashboard',
+    overview: 'Live Analytics Dashboard',
+    analytics: 'Live Analytics Dashboard',
     feed: 'Real-Time Feed',
-    analytics: 'Live Multi-Stream Analytics',
     devices: 'Device Fleet Management',
     image: 'Image Analysis',
     video: 'Video Analysis',
@@ -87,17 +81,8 @@ function AppContent() {
 
   const renderView = () => {
     switch (activeView) {
+      case 'dashboard':
       case 'overview':
-        return (
-          <OverviewView
-            health={health}
-            status={status}
-            latestMetrics={latestMetrics}
-            onNavigate={(view) => setActiveView(view as ViewType)}
-          />
-        );
-      case 'feed':
-        return null;
       case 'analytics':
         return (
           <AnalyticsView
@@ -106,6 +91,8 @@ function AppContent() {
             }}
           />
         );
+      case 'feed':
+        return null;
       case 'devices':
         return (
           <DeviceManagementView
@@ -120,18 +107,39 @@ function AppContent() {
       case 'video':
         return <VideoView />;
       case 'admin':
-        return <AdminView />;
+        return isAdmin ? (
+          <AdminView />
+        ) : (
+          <AnalyticsView
+            onFocusFeed={() => {
+              setActiveView('feed');
+            }}
+          />
+        );
       default:
         return (
-          <OverviewView
-            health={health}
-            status={status}
-            latestMetrics={latestMetrics}
-            onNavigate={(view) => setActiveView(view as ViewType)}
+          <AnalyticsView
+            onFocusFeed={() => {
+              setActiveView('feed');
+            }}
           />
         );
     }
   };
+
+  // While validating stored session token
+  if (isLoading) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-zinc-950 text-zinc-500 font-mono text-xs">
+        Authenticating session...
+      </div>
+    );
+  }
+
+  // Without signing in, nothing in the workspace is exposed; redirects straight to LoginView
+  if (!user) {
+    return <LoginView />;
+  }
 
   return (
     <div className="flex h-screen bg-zinc-950 text-zinc-100 font-sans overflow-hidden antialiased">

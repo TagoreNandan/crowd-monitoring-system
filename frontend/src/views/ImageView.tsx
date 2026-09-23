@@ -97,7 +97,7 @@ export const ImageView: React.FC = () => {
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-zinc-100">Image Analysis</h1>
           <p className="text-sm text-zinc-400 mt-0.5">
-            Person detection (YOLOv8) + dense crowd estimation (DM-Count) with separate visual outputs.
+            Person detection + dense crowd estimation with separate visual outputs.
           </p>
         </div>
 
@@ -169,7 +169,7 @@ export const ImageView: React.FC = () => {
               {loading && (
                 <div className="absolute inset-0 bg-zinc-950/80 backdrop-blur-xs flex flex-col items-center justify-center gap-2">
                   <RefreshCw className="w-6 h-6 text-zinc-400 animate-spin" />
-                  <span className="text-xs text-zinc-400 font-mono">Running YOLOv8 + DM-Count inference...</span>
+                  <span className="text-xs text-zinc-400 font-mono">Running crowd inference...</span>
                 </div>
               )}
             </div>
@@ -190,7 +190,7 @@ export const ImageView: React.FC = () => {
               </div>
             </div>
             <p className="text-[11px] text-zinc-500 -mt-4">
-              Visible People (YOLOv8 boxes) and Estimated Crowd (DM-Count density) are separate signals — a dense,
+              Visible People (optical boxes) and Estimated Crowd (spatial density) are separate signals — a dense,
               occluded crowd can validly show visible ≪ estimated.
             </p>
 
@@ -208,7 +208,7 @@ export const ImageView: React.FC = () => {
                   label="Detection Confidence"
                   value={avgConfidence !== null ? `${(avgConfidence * 100).toFixed(0)}%` : hasDetector ? '—' : 'N/A'}
                 />
-                <Row label="DM-Count Latency" value={result ? `${result.latency_ms} ms` : '—'} />
+                <Row label="Density Latency" value={result ? `${result.latency_ms} ms` : '—'} />
                 <Row
                   label="Detector Latency"
                   value={result?.detector_latency_ms != null ? `${result.detector_latency_ms.toFixed(0)} ms` : 'N/A'}

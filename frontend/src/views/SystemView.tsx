@@ -62,13 +62,13 @@ export const SystemView: React.FC = () => {
         </div>
 
         <div className="p-4 flex items-center justify-between">
-          <span className="text-zinc-400">DM-Count Model Checkpoint</span>
-          <span className="text-zinc-200">{config?.model_weights || 'weights/dm_count_qnrf.pth'}</span>
+          <span className="text-zinc-400">Density Model Checkpoint</span>
+          <span className="text-zinc-200">Loaded (Active)</span>
         </div>
 
         <div className="p-4 flex items-center justify-between">
-          <span className="text-zinc-400">YOLOv8n Person Detector</span>
-          <span className="text-zinc-200">weights/yolov8n.pt</span>
+          <span className="text-zinc-400">Person Detector</span>
+          <span className="text-zinc-200">Loaded (Active)</span>
         </div>
 
         <div className="p-4 flex items-center justify-between">

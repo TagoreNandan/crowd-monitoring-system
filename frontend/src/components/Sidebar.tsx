@@ -1,8 +1,8 @@
 import React from 'react';
-import { LayoutDashboard, Image as ImageIcon, Video, Radio, Shield, Lock, Camera, Activity } from 'lucide-react';
+import { LayoutDashboard, Image as ImageIcon, Video, Radio, Shield, Camera } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
-export type ViewType = 'overview' | 'image' | 'video' | 'feed' | 'devices' | 'analytics' | 'admin';
+export type ViewType = 'dashboard' | 'overview' | 'feed' | 'devices' | 'image' | 'video' | 'analytics' | 'admin';
 
 interface SidebarProps {
   activeView: ViewType;
@@ -29,9 +29,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   };
 
   const navItems = [
-    { id: 'overview', label: 'Overview', icon: LayoutDashboard },
+    { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'feed', label: 'Real-Time Feed', icon: Radio },
-    { id: 'analytics', label: 'Live Analytics', icon: Activity },
     { id: 'devices', label: 'Device Fleet', icon: Camera },
     { id: 'image', label: 'Image Analysis', icon: ImageIcon },
     { id: 'video', label: 'Video Analysis', icon: Video },
@@ -52,7 +51,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
         <nav className="p-2 space-y-0.5">
           {navItems.map((item) => {
             const Icon = item.icon;
-            const isActive = activeView === item.id;
+            const isActive =
+              activeView === item.id ||
+              (item.id === 'dashboard' && (activeView === 'overview' || activeView === 'analytics'));
 
             return (
               <button
@@ -70,27 +71,28 @@ export const Sidebar: React.FC<SidebarProps> = ({
             );
           })}
 
-          <div className="pt-3 pb-1 px-3">
-            <div className="border-t border-zinc-900" />
-          </div>
+          {/* Admin Navigation Item - Strictly RBAC protected: visible ONLY to authenticated Administrators */}
+          {isAdmin && (
+            <>
+              <div className="pt-3 pb-1 px-3">
+                <div className="border-t border-zinc-900" />
+              </div>
 
-          {/* Admin Navigation Item */}
-          <button
-            onClick={() => handleSelect('admin')}
-            className={`w-full flex items-center justify-between px-3 py-2 rounded-md text-xs font-medium transition-colors cursor-pointer ${
-              activeView === 'admin'
-                ? 'bg-zinc-900 text-zinc-100 border border-zinc-800'
-                : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900/50'
-            }`}
-          >
-            <div className="flex items-center gap-2.5">
-              <Shield className={`w-4 h-4 ${activeView === 'admin' ? 'text-zinc-100' : 'text-zinc-500'}`} />
-              <span>Admin Console</span>
-            </div>
-            {!isAdmin && (
-              <Lock className="w-3.5 h-3.5 text-zinc-600" />
-            )}
-          </button>
+              <button
+                onClick={() => handleSelect('admin')}
+                className={`w-full flex items-center justify-between px-3 py-2 rounded-md text-xs font-medium transition-colors cursor-pointer ${
+                  activeView === 'admin'
+                    ? 'bg-zinc-900 text-zinc-100 border border-zinc-800'
+                    : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900/50'
+                }`}
+              >
+                <div className="flex items-center gap-2.5">
+                  <Shield className={`w-4 h-4 ${activeView === 'admin' ? 'text-zinc-100' : 'text-zinc-500'}`} />
+                  <span>Admin Console</span>
+                </div>
+              </button>
+            </>
+          )}
         </nav>
       </div>
 

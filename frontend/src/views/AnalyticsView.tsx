@@ -158,7 +158,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({ onFocusFeed }) => 
           </div>
           <p className="text-[11px] text-zinc-500 flex items-center gap-1">
             <TrendingUp className="w-3 h-3 text-emerald-400" />
-            DM-Count spatial regression
+            Spatial density regression
           </p>
         </div>
 
@@ -172,7 +172,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({ onFocusFeed }) => 
             <span>{data ? data.total_visible : 0}</span>
             <span className="text-xs font-normal text-zinc-500 font-sans">boxes</span>
           </div>
-          <p className="text-[11px] text-zinc-500">YOLOv8 optical detector</p>
+          <p className="text-[11px] text-zinc-500">Optical detector</p>
         </div>
 
         {/* Fleet Risk */}

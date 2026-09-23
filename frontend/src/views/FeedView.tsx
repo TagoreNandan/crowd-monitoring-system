@@ -451,7 +451,7 @@ export const FeedView: React.FC<FeedViewProps> = ({ initialDevice }) => {
             <div className="text-4xl font-semibold font-mono text-zinc-100">
               {isLive && metrics?.estimated_count != null ? metrics.estimated_count : '—'}
             </div>
-            <p className="text-xs text-zinc-500">DM-Count dense estimate</p>
+            <p className="text-xs text-zinc-500">Spatial density estimate</p>
           </div>
 
           <div className="p-5 rounded-lg bg-zinc-900/40 border border-zinc-800 space-y-1">
@@ -462,7 +462,7 @@ export const FeedView: React.FC<FeedViewProps> = ({ initialDevice }) => {
             <div className="text-3xl font-semibold font-mono text-zinc-200">
               {isLive ? (metrics?.visible_count !== undefined && metrics?.visible_count !== null ? metrics.visible_count : 'N/A') : '—'}
             </div>
-            <p className="text-xs text-zinc-500">YOLOv8 bounding box count</p>
+            <p className="text-xs text-zinc-500">Optical detection count</p>
           </div>
 
           <div className="p-5 rounded-lg bg-zinc-900/40 border border-zinc-800 space-y-1">

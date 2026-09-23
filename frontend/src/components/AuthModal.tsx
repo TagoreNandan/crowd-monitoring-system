@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, AlertCircle, Shield, User as UserIcon, Lock, Mail } from 'lucide-react';
+import { X, AlertCircle, Shield, User as UserIcon, Lock } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { Button } from './ui/Button';
 
@@ -9,12 +9,9 @@ interface AuthModalProps {
 }
 
 export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
-  const { login, register } = useAuth();
-  const [isRegister, setIsRegister] = useState(false);
+  const { login } = useAuth();
   const [username, setUsername] = useState('');
-  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [fullName, setFullName] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -26,17 +23,10 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
     setLoading(true);
 
     try {
-      if (isRegister) {
-        if (!email.includes('@')) {
-          throw new Error('Please enter a valid email address');
-        }
-        await register(username, email, password, fullName);
-      } else {
-        await login(username, password);
-      }
+      await login(username, password);
       onClose();
     } catch (err: any) {
-      setError(err.message || 'Authentication failed');
+      setError(err.message || 'Authentication failed. Please verify credentials.');
     } finally {
       setLoading(false);
     }
@@ -48,7 +38,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
         {/* Close Button */}
         <button
           onClick={onClose}
-          className="absolute top-4 right-4 p-1 rounded-md text-zinc-400 hover:text-zinc-100 hover:bg-zinc-900 transition-colors"
+          className="absolute top-4 right-4 p-1 rounded-md text-zinc-400 hover:text-zinc-100 hover:bg-zinc-900 transition-colors cursor-pointer"
         >
           <X className="w-4 h-4" />
         </button>
@@ -60,13 +50,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
               <Shield className="w-4 h-4" />
             </div>
             <h2 className="text-base font-semibold tracking-tight text-zinc-100">
-              {isRegister ? 'Create Account' : 'Sign In'}
+              Sign In
             </h2>
           </div>
           <p className="text-xs text-zinc-400">
-            {isRegister
-              ? 'Register a new user account to access system features.'
-              : 'Enter your credentials to access your session.'}
+            Enter your credentials to access your session.
           </p>
         </div>
 
@@ -80,22 +68,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
 
         {/* Auth Form */}
         <form onSubmit={handleSubmit} className="space-y-3.5">
-          {isRegister && (
-            <div className="space-y-1">
-              <label className="block text-xs font-medium text-zinc-300">Full Name</label>
-              <div className="relative">
-                <input
-                  type="text"
-                  value={fullName}
-                  onChange={(e) => setFullName(e.target.value)}
-                  placeholder="Full name (optional)"
-                  className="w-full pl-8 pr-3 py-1.5 bg-zinc-900/60 border border-zinc-800 rounded-md text-xs text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-400 transition-colors"
-                />
-                <UserIcon className="w-3.5 h-3.5 text-zinc-500 absolute left-2.5 top-2" />
-              </div>
-            </div>
-          )}
-
           <div className="space-y-1">
             <label className="block text-xs font-medium text-zinc-300">Username</label>
             <div className="relative">
@@ -110,23 +82,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
               <UserIcon className="w-3.5 h-3.5 text-zinc-500 absolute left-2.5 top-2" />
             </div>
           </div>
-
-          {isRegister && (
-            <div className="space-y-1">
-              <label className="block text-xs font-medium text-zinc-300">Email Address</label>
-              <div className="relative">
-                <input
-                  type="email"
-                  required
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="name@organization.com"
-                  className="w-full pl-8 pr-3 py-1.5 bg-zinc-900/60 border border-zinc-800 rounded-md text-xs text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-400 transition-colors"
-                />
-                <Mail className="w-3.5 h-3.5 text-zinc-500 absolute left-2.5 top-2" />
-              </div>
-            </div>
-          )}
 
           <div className="space-y-1">
             <label className="block text-xs font-medium text-zinc-300">Password</label>
@@ -151,24 +106,10 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
               isLoading={loading}
               className="w-full"
             >
-              {isRegister ? 'Register' : 'Sign In'}
+              Sign In
             </Button>
           </div>
         </form>
-
-        {/* Toggle Mode Footer */}
-        <div className="mt-4 pt-3 border-t border-zinc-800/80 text-center">
-          <button
-            type="button"
-            onClick={() => {
-              setIsRegister(!isRegister);
-              setError(null);
-            }}
-            className="text-xs text-zinc-400 hover:text-zinc-200 transition-colors"
-          >
-            {isRegister ? 'Already have an account? Sign In' : "Don't have an account? Register"}
-          </button>
-        </div>
       </div>
     </div>
   );
