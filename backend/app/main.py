@@ -8,6 +8,7 @@ model this phase intentionally uses.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 from typing import AsyncIterator
@@ -19,6 +20,7 @@ from .db.init_db import init_db
 from .errors import install_exception_handlers
 from .logging_config import configure_logging
 from .pipeline_runtime import build_pipeline_kwargs
+from .live_recording import recover_orphaned_recordings
 from .routers import admin as admin_router
 from .routers import analytics as analytics_router
 from .routers import auth as auth_router
@@ -43,6 +45,11 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         logger.info("Database initialized successfully.")
     except Exception:
         logger.exception("Database initialization failed.")
+
+    try:
+        await asyncio.to_thread(recover_orphaned_recordings)
+    except Exception:
+        logger.exception("Failed to recover orphaned live-feed recordings at startup.")
 
     settings = get_settings()
     app_state = AppState(settings=settings, pipeline_kwargs=build_pipeline_kwargs())

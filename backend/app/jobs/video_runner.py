@@ -53,6 +53,7 @@ from crowd_monitoring.tracking import PersonTracker
 from crowd_monitoring.video import StreamState
 from crowd_monitoring.video_encoding import ensure_browser_compatible_video
 
+from .. import storage
 from ..pipeline_runtime import PipelineRuntime
 from ..schemas.jobs import VideoFrameMetrics, VideoJobSummary
 from ..schemas.ws import ErrorData, JobStartedData, WSEnvelope, WSEventType
@@ -461,6 +462,15 @@ async def run_video_job(
             job_store.set_heatmap_video_path(job_id, heatmap_path)
         if combined_path.exists():
             job_store.set_combined_video_path(job_id, combined_path)
+        if storage.is_s3_enabled():
+            for path, view in ((annotated_path, "detection"), (heatmap_path, "heatmap"), (combined_path, "combined")):
+                if path.exists():
+                    key = f"jobs/{job_id}/{view}.mp4"
+                    try:
+                        await runtime.run_sync(storage.upload_file, path, key)
+                        job_store.set_video_storage_key(job_id, view, key)
+                    except Exception:
+                        logger.exception("Failed to upload %s video for job %s to S3", view, job_id)
         succeeded = True
         await connection_manager.broadcast(
             channel,

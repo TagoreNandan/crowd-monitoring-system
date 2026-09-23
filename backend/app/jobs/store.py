@@ -13,7 +13,7 @@ from __future__ import annotations
 import threading
 import time
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional
 
@@ -57,6 +57,11 @@ class JobRecord:
     # map (no extra DM-Count calls) -- see `jobs/video_runner.py`.
     heatmap_video_path: Optional[Path] = None
     combined_video_path: Optional[Path] = None
+    # S3 object keys, populated only when STORAGE_BACKEND=s3. Empty dicts
+    # in local mode -- the existing local path fields remain the source
+    # of truth there.
+    video_storage_keys: dict[str, str] = field(default_factory=dict)
+    image_storage_keys: dict[str, str] = field(default_factory=dict)
 
 
 class JobStore:
@@ -154,6 +159,18 @@ class JobStore:
             record = self._jobs.get(job_id)
             if record is not None:
                 record.combined_video_path = path
+
+    def set_video_storage_key(self, job_id: str, view: str, key: str) -> None:
+        with self._lock:
+            record = self._jobs.get(job_id)
+            if record is not None:
+                record.video_storage_keys[view] = key
+
+    def set_image_storage_key(self, job_id: str, view: str, key: str) -> None:
+        with self._lock:
+            record = self._jobs.get(job_id)
+            if record is not None:
+                record.image_storage_keys[view] = key
 
     def mark_failed(self, job_id: str, error: str) -> None:
         with self._lock:

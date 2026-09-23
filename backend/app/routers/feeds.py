@@ -43,6 +43,8 @@ from crowd_monitoring.streaming.realtime import DensityResult, FastResult, Realt
 from crowd_monitoring.tracking import PersonTracker, TrackedPerson
 
 from ..dependencies import get_connection_manager, get_person_detector, get_pipeline_runtime
+from .. import storage
+from ..live_recording import LiveFeedRecorder
 from ..pipeline_runtime import PipelineRuntime
 from ..schemas.ws import ErrorData, WSEnvelope, WSEventType
 from ..settings import get_settings
@@ -61,6 +63,7 @@ router = APIRouter(prefix="/api/feeds", tags=["feeds"])
 _active_feeds: dict[str, RealtimeFeedSession] = {}
 _feed_peaks: dict[str, float] = {}
 _feed_latest_frames: dict[str, dict[str, str]] = {}
+_feed_recorders: dict[str, LiveFeedRecorder] = {}
 
 
 class CreateFeedRequest(BaseModel):
@@ -312,6 +315,9 @@ async def create_feed(
                 risk_status=_latest_density_risk_status(feed_id),
                 risk_score=_latest_density_risk_score(feed_id),
             )
+            recorder = _feed_recorders.get(feed_id)
+            if recorder is not None:
+                recorder.write_detection_frame(annotated)
             frame_jpeg = encode_jpeg_data_url(
                 annotated, quality=settings.feed_frame_jpeg_quality, max_side=None
             )
@@ -355,6 +361,11 @@ async def create_feed(
             heatmap_frame = draw_density_heatmap_overlay(disp_frame, density_map, alpha=0.70)
             combined_frame = draw_density_heatmap_overlay(disp_frame, density_map, alpha=0.45)
             combined_frame = draw_person_boxes(combined_frame, disp_boxes)
+
+            recorder = _feed_recorders.get(feed_id)
+            if recorder is not None:
+                recorder.save_snapshot(heatmap_frame, "heatmap")
+                recorder.save_snapshot(combined_frame, "combined")
 
             heatmap_jpeg = encode_jpeg_data_url(
                 heatmap_frame, quality=settings.feed_frame_jpeg_quality, max_side=None
@@ -411,6 +422,10 @@ async def create_feed(
             broadcast(envelope)
         except Exception:
             logger.exception("Error broadcasting WS feed error for %s", feed_id)
+        if err.stage == "producer":
+            asyncio.run_coroutine_threadsafe(
+                _finalize_feed_session(feed_id, connection_manager, reason="source_error"), loop
+            )
 
     # CPU-forced, reduced-resolution pipeline dedicated to real-time feeds
     # (see `PipelineRuntime._build_realtime_density_pipeline_sync`) -- keeps
@@ -437,6 +452,8 @@ async def create_feed(
         raise HTTPException(status_code=500, detail=f"Failed to start feed: {exc}") from exc
 
     _active_feeds[feed_id] = session
+    if storage.is_s3_enabled():
+        _feed_recorders[feed_id] = LiveFeedRecorder(feed_id)
     return _build_feed_response(session, req.source_type)
 
 
@@ -527,10 +544,26 @@ async def stop_feed(
     sess = _active_feeds.get(feed_id)
     if sess is None:
         raise HTTPException(status_code=404, detail=f"Feed '{feed_id}' not found")
-    sess.stop()
-    _active_feeds.pop(feed_id, None)
+
+    await _finalize_feed_session(feed_id, connection_manager, reason="user_stop")
+    return _build_feed_response(sess, "feed")
+
+
+async def _finalize_feed_session(
+    feed_id: str, connection_manager: ConnectionManager, reason: str = "stopped"
+) -> None:
+    sess = _active_feeds.pop(feed_id, None)
+    if sess is None:
+        return
+    try:
+        sess.stop()
+    except Exception:
+        logger.exception("Error stopping session for feed %s", feed_id)
     _feed_peaks.pop(feed_id, None)
     _feed_latest_frames.pop(feed_id, None)
+    recorder = _feed_recorders.pop(feed_id, None)
+    if recorder is not None:
+        await asyncio.to_thread(recorder.finalize)
     tmp_path = getattr(sess, "_temp_upload_path", None)
     if tmp_path is not None and isinstance(tmp_path, Path):
         try:
@@ -540,10 +573,17 @@ async def stop_feed(
     response = _build_feed_response(sess, "feed")
     await connection_manager.broadcast(
         connection_manager.feed_channel(feed_id),
-        WSEnvelope(type=WSEventType.FEED_STATUS, job_id=feed_id, data={"feed_id": feed_id, "status": "stopped"}),
+        WSEnvelope(
+            type=WSEventType.FEED_STATUS,
+            job_id=feed_id,
+            data={"feed_id": feed_id, "status": "stopped", "reason": reason},
+        ),
     )
     await connection_manager.broadcast(
         connection_manager.system_channel(),
-        WSEnvelope(type=WSEventType.SYSTEM_METRICS, job_id=feed_id, data={"feed_id": feed_id, "status": "stopped"}),
+        WSEnvelope(
+            type=WSEventType.SYSTEM_METRICS,
+            job_id=feed_id,
+            data={"feed_id": feed_id, "status": "stopped"},
+        ),
     )
-    return response
