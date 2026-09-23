@@ -101,6 +101,10 @@ class Settings(BaseSettings):
     # full/high-resolution frame regardless of what the browser is shown.
     feed_frame_max_side: int = 960
 
+    # Nominal FPS for live-feed detection recordings when STORAGE_BACKEND=s3.
+    # Heatmap and combined views are saved as timestamped JPEG snapshots.
+    live_feed_recording_fps: float = 8.0
+
     @property
     def cors_origin_list(self) -> list[str]:
         return [origin.strip() for origin in self.cors_allow_origins.split(",") if origin.strip()]
