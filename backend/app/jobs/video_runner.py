@@ -54,6 +54,9 @@ from crowd_monitoring.video import StreamState
 from crowd_monitoring.video_encoding import ensure_browser_compatible_video
 
 from .. import storage
+from ..auth.dependencies import log_activity
+from ..db.models import User
+from ..db.session import SessionLocal
 from ..pipeline_runtime import PipelineRuntime
 from ..schemas.jobs import VideoFrameMetrics, VideoJobSummary
 from ..schemas.ws import ErrorData, JobStartedData, WSEnvelope, WSEventType
@@ -471,6 +474,41 @@ async def run_video_job(
                         job_store.set_video_storage_key(job_id, view, key)
                     except Exception:
                         logger.exception("Failed to upload %s video for job %s to S3", view, job_id)
+        completed_record = job_store.get(job_id)
+        output_keys = (
+            completed_record.video_storage_keys.copy()
+            if completed_record is not None and completed_record.video_storage_keys
+            else {
+                view: str(path)
+                for view, path in (
+                    ("detection", annotated_path),
+                    ("heatmap", heatmap_path),
+                    ("combined", combined_path),
+                )
+                if path.exists()
+            }
+        )
+        activity_db = SessionLocal()
+        try:
+            activity_user = (
+                activity_db.get(User, completed_record.user_id)
+                if completed_record is not None and completed_record.user_id is not None
+                else None
+            )
+            log_activity(
+                activity_db,
+                action="VIDEO_ANALYZED",
+                category="INFERENCE",
+                details=f"Video analysis completed: {source_description} (Job ID: {job_id})",
+                severity="INFO",
+                user=activity_user,
+                job_id=job_id,
+                job_type="VIDEO",
+                output_keys=output_keys,
+                storage_backend="s3" if storage.is_s3_enabled() else "local",
+            )
+        finally:
+            activity_db.close()
         succeeded = True
         await connection_manager.broadcast(
             channel,
@@ -484,6 +522,27 @@ async def run_video_job(
         except OSError:
             logger.warning("Failed to remove temp video for job %s", job_id, exc_info=True)
         job_store.mark_failed(job_id, str(exc))
+        failed_record = job_store.get(job_id)
+        activity_db = SessionLocal()
+        try:
+            activity_user = (
+                activity_db.get(User, failed_record.user_id)
+                if failed_record is not None and failed_record.user_id is not None
+                else None
+            )
+            log_activity(
+                activity_db,
+                action="VIDEO_JOB_FAILED",
+                category="INFERENCE",
+                details=f"Video analysis failed: {source_description} (Job ID: {job_id}): {exc}",
+                severity="CRITICAL",
+                user=activity_user,
+                job_id=job_id,
+                job_type="VIDEO",
+                storage_backend="s3" if storage.is_s3_enabled() else "local",
+            )
+        finally:
+            activity_db.close()
         try:
             await connection_manager.broadcast(
                 channel,

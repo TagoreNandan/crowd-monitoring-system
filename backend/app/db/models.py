@@ -36,6 +36,10 @@ class ActivityLog(Base):
     details = Column(Text, nullable=True, default="")
     severity = Column(String(20), nullable=False, default="INFO")  # "INFO", "WARNING", "CRITICAL"
     timestamp = Column(DateTime, default=utcnow, nullable=False, index=True)
+    job_id = Column(String, nullable=True, index=True)
+    job_type = Column(String, nullable=True)  # "IMAGE" | "VIDEO"
+    output_keys = Column(Text, nullable=True)  # JSON object of output references
+    storage_backend = Column(String, nullable=True)  # "s3" | "local"
 
 
 class Device(Base):

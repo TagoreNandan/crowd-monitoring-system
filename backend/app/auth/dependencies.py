@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import json
 from typing import Optional
 
 from fastapi import Depends, HTTPException, status
@@ -84,6 +85,10 @@ def log_activity(
     severity: str = "INFO",
     user: Optional[User] = None,
     username: Optional[str] = None,
+    job_id: Optional[str] = None,
+    job_type: Optional[str] = None,
+    output_keys: Optional[dict[str, str]] = None,
+    storage_backend: Optional[str] = None,
 ) -> ActivityLog:
     """Record an action in the ActivityLog table."""
     try:
@@ -96,6 +101,10 @@ def log_activity(
             category=category,
             details=details,
             severity=severity,
+            job_id=job_id,
+            job_type=job_type,
+            output_keys=json.dumps(output_keys) if output_keys is not None else None,
+            storage_backend=storage_backend,
         )
         db.add(entry)
         db.commit()

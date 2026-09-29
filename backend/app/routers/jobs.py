@@ -137,6 +137,13 @@ async def create_image_job(
     risk_level = result.risk.level if hasattr(result, "risk") and hasattr(result.risk, "level") else "UNKNOWN"
     count = round(result.count, 1) if hasattr(result, "count") else 0
     severity = "CRITICAL" if str(risk_level).upper() in ("CRITICAL", "WARNING") else "INFO"
+    image_output_keys = job.image_storage_keys.copy()
+    if not image_output_keys:
+        image_output_keys = {
+            view: f"/api/jobs/{job.job_id}/image/{view}"
+            for view in ("detection", "density", "heatmap", "localization", "combined")
+            if getattr(images, view)
+        }
     log_activity(
         db,
         action="IMAGE_ANALYZED",
@@ -144,6 +151,10 @@ async def create_image_job(
         details=f"File: {image.filename or 'upload'} | Count: {count} | Risk: {risk_level}",
         severity=severity,
         user=user,
+        job_id=job.job_id,
+        job_type="IMAGE",
+        output_keys=image_output_keys,
+        storage_backend="s3" if job.image_storage_keys else "local",
     )
 
     record = job_store.get(job.job_id)
@@ -171,6 +182,7 @@ async def create_video_job(
         job_type=JobType.VIDEO,
         source_description=video.filename or "upload",
         temp_path=tmp_path,
+        user_id=user.id if user else None,
     )
 
     schedule_video_job(

@@ -27,6 +27,7 @@ class JobRecord:
     status: JobStatus
     created_at: float
     source_description: str = ""
+    user_id: Optional[int] = None
     started_at: Optional[float] = None
     completed_at: Optional[float] = None
     progress: float = 0.0
@@ -84,6 +85,7 @@ class JobStore:
         source_description: str = "",
         temp_path: Optional[Path] = None,
         message: Optional[str] = None,
+        user_id: Optional[int] = None,
     ) -> JobRecord:
         with self._lock:
             self._purge_expired_locked()
@@ -93,6 +95,7 @@ class JobStore:
                 status=JobStatus.PENDING,
                 created_at=time.time(),
                 source_description=source_description,
+                user_id=user_id,
                 temp_path=temp_path,
                 message=message,
             )

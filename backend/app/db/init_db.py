@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import logging
 
+from sqlalchemy import inspect, text
+
 try:
     from .session import Base, SessionLocal, engine
     from .models import User, ActivityLog, Device
@@ -18,9 +20,28 @@ except (ImportError, ValueError):
 logger = logging.getLogger(__name__)
 
 
+def _ensure_activity_log_columns() -> None:
+    """Add activity output-reference columns to databases created by older versions."""
+    required_columns = {
+        "job_id": "VARCHAR",
+        "job_type": "VARCHAR",
+        "output_keys": "TEXT",
+        "storage_backend": "VARCHAR",
+    }
+    inspector = inspect(engine)
+    existing_columns = {column["name"] for column in inspector.get_columns("activity_logs")}
+    with engine.begin() as connection:
+        for column_name, column_type in required_columns.items():
+            if column_name not in existing_columns:
+                connection.execute(text(f"ALTER TABLE activity_logs ADD COLUMN {column_name} {column_type}"))
+        if "job_id" not in {index["name"] for index in inspector.get_indexes("activity_logs")}:
+            connection.execute(text("CREATE INDEX IF NOT EXISTS ix_activity_logs_job_id ON activity_logs (job_id)"))
+
+
 def init_db() -> None:
     """Create database tables and ensure administrator account exists."""
     Base.metadata.create_all(bind=engine)
+    _ensure_activity_log_columns()
 
     settings = get_settings()
     db = SessionLocal()
