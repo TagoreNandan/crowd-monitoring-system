@@ -599,7 +599,7 @@ async def start_feed_recording(
 ):
     """Start recording detection-view video and snapshots for an active feed session."""
     session = _active_feeds.get(feed_id)
-    if session is None or not session.is_alive:
+    if session is None or not session.is_running:
         raise HTTPException(status_code=404, detail=f"Live feed '{feed_id}' is not active or running")
 
     if feed_id in _feed_recorders:
