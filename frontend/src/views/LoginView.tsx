@@ -102,7 +102,7 @@ export const LoginView: React.FC = () => {
           <Button
             type="submit"
             variant="default"
-            size="default"
+            size="md"
             isLoading={loading}
             className="w-full mt-2 font-medium"
           >
