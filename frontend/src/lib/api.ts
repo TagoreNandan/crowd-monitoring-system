@@ -1,5 +1,7 @@
 import type {
   ActivityLog,
+  ActivityDownloadResponse,
+  ActivityListResponse,
   AdminOverviewStats,
   AuthTokenResponse,
   Device,
@@ -17,6 +19,7 @@ import type {
   User,
   WSEnvelope,
 } from '../types/api';
+import type { ImageUrlInfo } from '../types/api';
 
 const API_BASE = '/api';
 
@@ -109,8 +112,8 @@ export function getJobImageUrl(jobId: string, view: string = 'detection'): strin
   return `${API_BASE}/jobs/${jobId}/image/${view}`;
 }
 
-export async function getJobImageUrlInfo(jobId: string, view: string = 'detection'): Promise<VideoUrlInfo> {
-  const res = await fetch(`${API_BASE}/jobs/${jobId}/image/${view}/url`);
+export async function getJobImageUrlInfo(jobId: string, view: string = 'detection'): Promise<ImageUrlInfo> {
+  const res = await fetch(`${API_BASE}/jobs/jobs/${jobId}/image/${view}/url`);
   if (!res.ok) {
     throw new Error(`Failed to get image URL info (${res.status})`);
   }
@@ -369,6 +372,75 @@ export async function getAdminActivities(limit = 50, token?: string): Promise<Ac
   });
 
   if (!res.ok) throw new Error('Failed to load system activities');
+  return res.json();
+}
+
+export interface ActivityQueryParams {
+  limit?: number;
+  offset?: number;
+  category?: string;
+  action?: string;
+  severity?: string;
+  has_download?: boolean;
+  username?: string;
+}
+
+export async function getActivities(
+  params: ActivityQueryParams = {},
+  token?: string
+): Promise<ActivityListResponse> {
+  const authToken = token || getStoredToken();
+  const query = new URLSearchParams();
+  if (params.limit !== undefined) query.set('limit', String(params.limit));
+  if (params.offset !== undefined) query.set('offset', String(params.offset));
+  if (params.category) query.set('category', params.category);
+  if (params.action) query.set('action', params.action);
+  if (params.severity) query.set('severity', params.severity);
+  if (params.has_download !== undefined) query.set('has_download', String(params.has_download));
+  if (params.username) query.set('username', params.username);
+
+  const queryString = query.toString();
+  const res = await fetch(`${API_BASE}/activity${queryString ? `?${queryString}` : ''}`, {
+    headers: { Authorization: `Bearer ${authToken}` },
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || err.error?.message || 'Failed to load activity log');
+  }
+
+  return res.json();
+}
+
+export class ActivityDownloadError extends Error {
+  status: number;
+
+  constructor(status: number, message: string) {
+    super(message);
+    this.name = 'ActivityDownloadError';
+    this.status = status;
+  }
+}
+
+export async function requestActivityDownload(
+  activityId: number,
+  view: string,
+  token?: string
+): Promise<ActivityDownloadResponse> {
+  const authToken = token || getStoredToken();
+  const res = await fetch(
+    `${API_BASE}/activity/${activityId}/download?view=${encodeURIComponent(view)}`,
+    { headers: { Authorization: `Bearer ${authToken}` } }
+  );
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new ActivityDownloadError(
+      res.status,
+      err.detail || err.error?.message || 'Failed to prepare download'
+    );
+  }
+
   return res.json();
 }
 

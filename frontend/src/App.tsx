@@ -7,6 +7,7 @@ import { FeedView } from './views/FeedView';
 import { AdminView } from './views/AdminView';
 import { DeviceManagementView } from './views/DeviceManagementView';
 import { AnalyticsView } from './views/AnalyticsView';
+import { ActivityLogView } from './views/ActivityLogView';
 import { LoginView } from './views/LoginView';
 import { AuthModal } from './components/AuthModal';
 import { AuthProvider, useAuth } from './context/AuthContext';
@@ -76,6 +77,7 @@ function AppContent() {
     devices: 'Device Fleet Management',
     image: 'Image Analysis',
     video: 'Video Analysis',
+    activity: 'Activity Log',
     admin: 'Administrator Console',
   };
 
@@ -106,6 +108,8 @@ function AppContent() {
         return <ImageView />;
       case 'video':
         return <VideoView />;
+      case 'activity':
+        return <ActivityLogView />;
       case 'admin':
         return isAdmin ? (
           <AdminView />

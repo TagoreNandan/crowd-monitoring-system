@@ -45,6 +45,15 @@ export interface ImageAnalysisResult {
   warnings?: string[];
 }
 
+export interface ImageUrlInfo {
+  mode: 's3' | 'local';
+  view: string;
+  url: string;
+  expires_in: number | null;
+  expires_at: number | null;
+  storage_key?: string;
+}
+
 export interface VideoFrameMetrics {
   frame_number: number;
   total_frames?: number | null;
@@ -203,6 +212,34 @@ export interface ActivityLog {
   details?: string;
   severity: 'INFO' | 'WARNING' | 'CRITICAL';
   timestamp: string;
+}
+
+export interface ActivityListItem {
+  id: number;
+  username: string;
+  action: string;
+  category: string;
+  details?: string | null;
+  severity: 'INFO' | 'WARNING' | 'CRITICAL' | string;
+  timestamp: string;
+  job_id?: string | null;
+  job_type?: string | null;
+  has_download: boolean;
+  available_views: string[];
+}
+
+export interface ActivityListResponse {
+  items: ActivityListItem[];
+  total: number;
+}
+
+export interface ActivityDownloadResponse {
+  mode: 's3' | 'local';
+  url: string;
+  expires_in: number | null;
+  expires_at: number | null;
+  filename: string;
+  view: string;
 }
 
 export interface AdminOverviewStats {

@@ -1,8 +1,8 @@
 import React from 'react';
-import { LayoutDashboard, Image as ImageIcon, Video, Radio, Shield, Camera } from 'lucide-react';
+import { Activity, LayoutDashboard, Image as ImageIcon, Video, Radio, Shield, Camera } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
-export type ViewType = 'dashboard' | 'overview' | 'feed' | 'devices' | 'image' | 'video' | 'analytics' | 'admin';
+export type ViewType = 'dashboard' | 'overview' | 'feed' | 'devices' | 'image' | 'video' | 'analytics' | 'activity' | 'admin';
 
 interface SidebarProps {
   activeView: ViewType;
@@ -34,6 +34,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'devices', label: 'Device Fleet', icon: Camera },
     { id: 'image', label: 'Image Analysis', icon: ImageIcon },
     { id: 'video', label: 'Video Analysis', icon: Video },
+    { id: 'activity', label: 'Activity Log', icon: Activity },
   ];
 
   return (
