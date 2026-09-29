@@ -22,6 +22,7 @@ from .logging_config import configure_logging
 from .pipeline_runtime import build_pipeline_kwargs
 from .live_recording import recover_orphaned_recordings
 from .routers import admin as admin_router
+from .routers import activity as activity_router
 from .routers import analytics as analytics_router
 from .routers import auth as auth_router
 from .routers import config as config_router
@@ -92,6 +93,7 @@ def create_app() -> FastAPI:
 
     app.include_router(auth_router.router)
     app.include_router(admin_router.router)
+    app.include_router(activity_router.router)
     app.include_router(devices_router.router)
     app.include_router(analytics_router.router)
     app.include_router(health_router.router)
