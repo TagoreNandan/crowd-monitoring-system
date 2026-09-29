@@ -6,6 +6,8 @@ import type {
   DeviceCreatePayload,
   DeviceUpdatePayload,
   FeedResponse,
+  RecordingSummary,
+  RecordingStatusResponse,
   JobRecordResponse,
   LiveAnalyticsResponse,
   StreamProbeResult,
@@ -86,6 +88,35 @@ export function getJobVideoUrl(jobId: string, view: VideoView = 'detection'): st
   return `${API_BASE}/jobs/${jobId}/video/${view}`;
 }
 
+export interface VideoUrlInfo {
+  mode: 's3' | 'local';
+  view: VideoView;
+  url: string;
+  expires_in: number | null;
+  expires_at: number | null;
+  storage_key?: string;
+}
+
+export async function getJobVideoUrlInfo(jobId: string, view: VideoView = 'detection'): Promise<VideoUrlInfo> {
+  const res = await fetch(`${API_BASE}/jobs/${jobId}/video/${view}/url`);
+  if (!res.ok) {
+    throw new Error(`Failed to get video URL info (${res.status})`);
+  }
+  return res.json();
+}
+
+export function getJobImageUrl(jobId: string, view: string = 'detection'): string {
+  return `${API_BASE}/jobs/${jobId}/image/${view}`;
+}
+
+export async function getJobImageUrlInfo(jobId: string, view: string = 'detection'): Promise<VideoUrlInfo> {
+  const res = await fetch(`${API_BASE}/jobs/${jobId}/image/${view}/url`);
+  if (!res.ok) {
+    throw new Error(`Failed to get image URL info (${res.status})`);
+  }
+  return res.json();
+}
+
 export async function createFeed(
   sourceType: string = 'video',
   sourceUri: string = 'dashboard/static/uploads/077cc45b94_14968235_2160_3840_60fps.mp4',
@@ -148,6 +179,36 @@ export async function stopFeed(feedId: string): Promise<FeedResponse> {
   });
 
   if (!res.ok) throw new Error(`Failed to stop feed ${feedId}`);
+  return res.json();
+}
+
+export async function startFeedRecording(feedId: string): Promise<{ status: string; recording: boolean; session_uid: string; started_at: number; message: string }> {
+  const res = await fetch(`${API_BASE}/feeds/${feedId}/record/start`, {
+    method: 'POST',
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || err.message || `Failed to start recording (${res.status})`);
+  }
+  return res.json();
+}
+
+export async function stopFeedRecording(feedId: string): Promise<{ status: string; recording: boolean; summary: RecordingSummary; message: string }> {
+  const res = await fetch(`${API_BASE}/feeds/${feedId}/record/stop`, {
+    method: 'POST',
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || err.message || `Failed to stop recording (${res.status})`);
+  }
+  return res.json();
+}
+
+export async function getFeedRecordingStatus(feedId: string): Promise<RecordingStatusResponse> {
+  const res = await fetch(`${API_BASE}/feeds/${feedId}/record/status`);
+  if (!res.ok) {
+    throw new Error(`Failed to get recording status (${res.status})`);
+  }
   return res.json();
 }
 

@@ -41,6 +41,7 @@ export interface ImageAnalysisResult {
   clusters: ClusterSummary;
   risk: RiskSummary;
   images?: ImageVisualizations | null;
+  s3_urls?: Record<string, string> | null;
   warnings?: string[];
 }
 
@@ -115,9 +116,28 @@ export interface FeedResponse {
   source_type: string;
   status: 'starting' | 'running' | 'stopping' | 'stopped' | 'failed';
   frames_produced: number;
+  is_recording?: boolean;
   latest_metrics?: VideoFrameMetrics | null;
   error?: string | null;
   description?: string;
+}
+
+export interface RecordingSummary {
+  feed_id: string;
+  session_uid: string;
+  frame_count: number;
+  duration_s: number;
+  s3_key?: string | null;
+  download_url?: string | null;
+  is_finalized: boolean;
+}
+
+export interface RecordingStatusResponse {
+  feed_id: string;
+  recording: boolean;
+  session_uid?: string | null;
+  duration_s: number;
+  frames: number;
 }
 
 export interface SystemHealth {

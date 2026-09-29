@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Radio, Play, Square, RefreshCw, AlertCircle, Users, Eye, Camera } from 'lucide-react';
-import { createFeed, stopFeed, connectWebSocket, uploadFeedVideo, getDevices, listFeeds } from '../lib/api';
-import type { Device, FeedResponse, PartialFeedMetrics, VideoFrameMetrics, WSEnvelope } from '../types/api';
+import { Radio, Play, Square, RefreshCw, AlertCircle, Users, Eye, Camera, Circle, Download, CheckCircle2, X } from 'lucide-react';
+import { createFeed, stopFeed, connectWebSocket, uploadFeedVideo, getDevices, listFeeds, startFeedRecording, stopFeedRecording, getFeedRecordingStatus } from '../lib/api';
+import type { Device, FeedResponse, PartialFeedMetrics, VideoFrameMetrics, WSEnvelope, RecordingSummary } from '../types/api';
 import { Badge } from '../components/ui/Badge';
 import { Button } from '../components/ui/Button';
 
@@ -31,6 +31,13 @@ export const FeedView: React.FC<FeedViewProps> = ({ initialDevice }) => {
   const [liveCombined, setLiveCombined] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>('bbox');
   const [error, setError] = useState<string | null>(null);
+
+  // Manual on-demand recording state
+  const [isRecording, setIsRecording] = useState<boolean>(false);
+  const [recordingDuration, setRecordingDuration] = useState<number>(0);
+  const [recordLoading, setRecordLoading] = useState<boolean>(false);
+  const [lastRecording, setLastRecording] = useState<RecordingSummary | null>(null);
+  const recordingTimerRef = useRef<any>(null);
 
   const wsRef = useRef<WebSocket | null>(null);
   const intentionalStopRef = useRef<boolean>(false);
@@ -81,13 +88,25 @@ export const FeedView: React.FC<FeedViewProps> = ({ initialDevice }) => {
           if (envelope.data.combined_jpeg) setLiveCombined(envelope.data.combined_jpeg);
           reconnectAttemptsRef.current = 0;
           setConnectionState('LIVE');
-        } else if (envelope.type === 'feed.status' && envelope.data?.status === 'stopped') {
-          intentionalStopRef.current = true;
-          setConnectionState('STOPPED');
-          setMetrics(null);
-          setLiveFrame(null);
-          setLiveHeatmap(null);
-          setLiveCombined(null);
+        } else if (envelope.type === 'feed.status') {
+          if (envelope.data?.status === 'stopped') {
+            intentionalStopRef.current = true;
+            setConnectionState('STOPPED');
+            setMetrics(null);
+            setLiveFrame(null);
+            setLiveHeatmap(null);
+            setLiveCombined(null);
+            setIsRecording(false);
+            if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
+          } else if (envelope.data?.event === 'recording_started') {
+            setIsRecording(true);
+          } else if (envelope.data?.event === 'recording_stopped') {
+            setIsRecording(false);
+            if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
+            if (envelope.data?.summary) {
+              setLastRecording(envelope.data.summary);
+            }
+          }
         } else if (envelope.type === 'feed.error') {
           setError(envelope.data?.message || 'Feed processing error');
           setConnectionState('ERROR');
@@ -176,6 +195,8 @@ export const FeedView: React.FC<FeedViewProps> = ({ initialDevice }) => {
     setStopping(true);
     intentionalStopRef.current = true;
     if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
+    if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
+    setIsRecording(false);
 
     try {
       await stopFeed(activeFeed.feed_id);
@@ -189,6 +210,55 @@ export const FeedView: React.FC<FeedViewProps> = ({ initialDevice }) => {
       setError(err.message || 'Failed to stop feed');
     } finally {
       setStopping(false);
+    }
+  };
+
+  useEffect(() => {
+    return () => {
+      if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
+    };
+  }, []);
+
+  const formatDuration = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  const handleStartRecording = async () => {
+    if (!activeFeed) return;
+    setRecordLoading(true);
+    setError(null);
+    try {
+      await startFeedRecording(activeFeed.feed_id);
+      setIsRecording(true);
+      setRecordingDuration(0);
+      setLastRecording(null);
+      if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
+      recordingTimerRef.current = setInterval(() => {
+        setRecordingDuration((prev) => prev + 1);
+      }, 1000);
+    } catch (err: any) {
+      setError(err.message || 'Failed to start recording');
+    } finally {
+      setRecordLoading(false);
+    }
+  };
+
+  const handleStopRecording = async () => {
+    if (!activeFeed) return;
+    setRecordLoading(true);
+    try {
+      const res = await stopFeedRecording(activeFeed.feed_id);
+      setIsRecording(false);
+      if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
+      if (res.summary) {
+        setLastRecording(res.summary);
+      }
+    } catch (err: any) {
+      setError(err.message || 'Failed to stop recording');
+    } finally {
+      setRecordLoading(false);
     }
   };
 
@@ -260,15 +330,46 @@ export const FeedView: React.FC<FeedViewProps> = ({ initialDevice }) => {
           {statusBadge()}
         </div>
 
-        <div>
+        <div className="flex items-center gap-2.5">
+          {activeFeed && isLive && (
+            <>
+              {!isRecording ? (
+                <Button
+                  variant="outline"
+                  onClick={handleStartRecording}
+                  isLoading={recordLoading}
+                  className="border-rose-900/60 hover:bg-rose-950/40 text-rose-400 hover:text-rose-300"
+                >
+                  <Circle className="w-3.5 h-3.5 mr-1.5 fill-rose-500 text-rose-500" />
+                  Start Record
+                </Button>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <span className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md bg-rose-950/90 border border-rose-800 text-rose-400 font-mono text-xs font-semibold animate-pulse">
+                    <span className="w-2 h-2 rounded-full bg-rose-500 animate-ping" />
+                    REC {formatDuration(recordingDuration)}
+                  </span>
+                  <Button
+                    variant="destructive"
+                    onClick={handleStopRecording}
+                    isLoading={recordLoading}
+                  >
+                    <Square className="w-3.5 h-3.5 mr-1.5 fill-current" />
+                    Stop Record
+                  </Button>
+                </div>
+              )}
+            </>
+          )}
+
           {!activeFeed ? (
             <Button onClick={handleStartFeed} isLoading={starting}>
               <Play className="w-3.5 h-3.5 mr-1.5" />
               Start Feed
             </Button>
           ) : (
-            <Button variant="destructive" onClick={handleStopFeed} isLoading={stopping}>
-              <Square className="w-3.5 h-3.5 mr-1.5" />
+            <Button variant="outline" onClick={handleStopFeed} isLoading={stopping} className="border-zinc-800 text-zinc-300 hover:bg-zinc-900">
+              <Square className="w-3.5 h-3.5 mr-1.5 text-zinc-400" />
               Stop Feed
             </Button>
           )}
@@ -281,9 +382,17 @@ export const FeedView: React.FC<FeedViewProps> = ({ initialDevice }) => {
           <div className="relative rounded-lg border border-zinc-800 bg-black min-h-[440px] flex flex-col justify-between overflow-hidden">
             {isLive && (
               <div className="flex items-center justify-between px-3 py-2 bg-zinc-950/90 border-b border-zinc-800 z-10">
-                <div className="flex items-center gap-2 font-mono text-xs text-emerald-400">
-                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
-                  <span>STREAM: {activeFeed?.feed_id}</span>
+                <div className="flex items-center gap-3 font-mono text-xs text-emerald-400">
+                  <div className="flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+                    <span>STREAM: {activeFeed?.feed_id}</span>
+                  </div>
+                  {isRecording && (
+                    <span className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-rose-950/90 border border-rose-800/80 text-rose-400 text-[11px] font-semibold animate-pulse">
+                      <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-ping" />
+                      REC {formatDuration(recordingDuration)}
+                    </span>
+                  )}
                 </div>
                 <div className="flex items-center gap-1 bg-zinc-900 p-1 rounded border border-zinc-800">
                   <button
@@ -334,6 +443,40 @@ export const FeedView: React.FC<FeedViewProps> = ({ initialDevice }) => {
               )}
             </div>
           </div>
+
+          {lastRecording && (
+            <div className="flex items-center justify-between p-3.5 rounded-lg bg-zinc-900/90 border border-emerald-900/60 text-xs">
+              <div className="flex items-center gap-2.5">
+                <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                <div>
+                  <span className="text-zinc-200 font-medium">Live recording saved successfully</span>
+                  <span className="text-zinc-400 ml-2 font-mono">
+                    {lastRecording.duration_s}s • {lastRecording.frame_count} frames {lastRecording.s3_key ? '• S3 Cloud' : '• Local Storage'}
+                  </span>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                {lastRecording.download_url && (
+                  <a
+                    href={lastRecording.download_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 px-3 py-1 bg-zinc-800 hover:bg-zinc-700 text-zinc-100 rounded text-xs font-medium transition-colors border border-zinc-700"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    Download Video
+                  </a>
+                )}
+                <button
+                  onClick={() => setLastRecording(null)}
+                  className="text-zinc-500 hover:text-zinc-300 p-1"
+                  title="Dismiss"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </div>
+          )}
 
           {/* Stream Ingestion Source Panel */}
           <div className="p-4 rounded-lg bg-zinc-900/40 border border-zinc-800 space-y-3 text-xs">

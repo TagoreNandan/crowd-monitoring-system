@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Upload, RefreshCw, AlertCircle, Sparkles } from 'lucide-react';
+import { Upload, RefreshCw, AlertCircle, Sparkles, Cloud } from 'lucide-react';
 import { analyzeImage } from '../lib/api';
 import type { JobRecordResponse } from '../types/api';
 import { Badge } from '../components/ui/Badge';
@@ -84,6 +84,9 @@ export const ImageView: React.FC = () => {
   const tabImageSrc = (): string | null => {
     if (!previewUrl) return null;
     if (activeTab === 'original') return previewUrl;
+    if (result?.s3_urls && result.s3_urls[activeTab]) {
+      return result.s3_urls[activeTab];
+    }
     if (!images) return null;
     return images[activeTab] ?? null;
   };
@@ -131,27 +134,35 @@ export const ImageView: React.FC = () => {
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
           <div className="lg:col-span-8 space-y-4">
             {jobResult && (
-              <div className="flex items-center gap-1 border-b border-zinc-800 pb-2 text-xs flex-wrap">
-                {TABS.map((tab) => {
-                  const unavailable = tab.key !== 'original' && !images?.[tab.key];
-                  return (
-                    <button
-                      key={tab.key}
-                      onClick={() => !unavailable && setActiveTab(tab.key)}
-                      disabled={unavailable}
-                      title={unavailable ? 'Not available for this image' : undefined}
-                      className={`px-3 py-1 rounded-md transition-colors ${
-                        activeTab === tab.key
-                          ? 'bg-zinc-900 text-zinc-100 border border-zinc-800 font-medium'
-                          : unavailable
-                          ? 'text-zinc-700 cursor-not-allowed'
-                          : 'text-zinc-400 hover:text-zinc-200'
-                      }`}
-                    >
-                      {tab.label}
-                    </button>
-                  );
-                })}
+              <div className="flex items-center justify-between border-b border-zinc-800 pb-2 text-xs flex-wrap gap-2">
+                <div className="flex items-center gap-1 flex-wrap">
+                  {TABS.map((tab) => {
+                    const unavailable = tab.key !== 'original' && !images?.[tab.key] && !result?.s3_urls?.[tab.key];
+                    return (
+                      <button
+                        key={tab.key}
+                        onClick={() => !unavailable && setActiveTab(tab.key)}
+                        disabled={unavailable}
+                        title={unavailable ? 'Not available for this image' : undefined}
+                        className={`px-3 py-1 rounded-md transition-colors ${
+                          activeTab === tab.key
+                            ? 'bg-zinc-900 text-zinc-100 border border-zinc-800 font-medium'
+                            : unavailable
+                            ? 'text-zinc-700 cursor-not-allowed'
+                            : 'text-zinc-400 hover:text-zinc-200'
+                        }`}
+                      >
+                        {tab.label}
+                      </button>
+                    );
+                  })}
+                </div>
+                {result?.s3_urls && activeTab !== 'original' && (
+                  <span className="flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-emerald-950/70 border border-emerald-800/80 text-emerald-400 font-mono text-[11px] font-medium">
+                    <Cloud className="w-3 h-3 text-emerald-400 animate-pulse" />
+                    <span>S3 Pre-signed URL</span>
+                  </span>
+                )}
               </div>
             )}
 
