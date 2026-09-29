@@ -45,6 +45,14 @@ export const FeedView: React.FC<FeedViewProps> = ({ initialDevice }) => {
   const feedIdRef = useRef<string | null>(null);
   const reconnectTimerRef = useRef<any>(null);
 
+  const startRecordingTimer = useCallback((fromSeconds: number) => {
+    if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
+    setRecordingDuration(fromSeconds);
+    recordingTimerRef.current = setInterval(() => {
+      setRecordingDuration((prev) => prev + 1);
+    }, 1000);
+  }, []);
+
   const applyDeviceSource = (dev: Device) => {
     if (dev.stream_type.toUpperCase() === 'WEBCAM') {
       setSourceType('camera');
@@ -148,10 +156,20 @@ export const FeedView: React.FC<FeedViewProps> = ({ initialDevice }) => {
           setSourceType(running.source_type);
           setConnectionState('CONNECTING');
           attachSocket(running.feed_id);
+
+          // Restore recording state: the backend keeps recording across a page reload.
+          getFeedRecordingStatus(running.feed_id)
+            .then((status) => {
+              if (status.recording) {
+                setIsRecording(true);
+                startRecordingTimer(Math.floor(status.duration_s));
+              }
+            })
+            .catch((err) => console.error('Failed to check recording status:', err));
         }
       })
       .catch((err) => console.error('Failed to check running feeds:', err));
-  }, [attachSocket]);
+  }, [attachSocket, startRecordingTimer]);
 
   useEffect(() => {
     return () => {
@@ -232,12 +250,8 @@ export const FeedView: React.FC<FeedViewProps> = ({ initialDevice }) => {
     try {
       await startFeedRecording(activeFeed.feed_id);
       setIsRecording(true);
-      setRecordingDuration(0);
       setLastRecording(null);
-      if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
-      recordingTimerRef.current = setInterval(() => {
-        setRecordingDuration((prev) => prev + 1);
-      }, 1000);
+      startRecordingTimer(0);
     } catch (err: any) {
       setError(err.message || 'Failed to start recording');
     } finally {
