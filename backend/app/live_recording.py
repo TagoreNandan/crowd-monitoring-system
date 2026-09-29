@@ -15,7 +15,7 @@ import logging
 import time
 import uuid
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 import cv2
 
@@ -36,6 +36,8 @@ class LiveFeedRecorder:
         self._frame_count = 0
         self._start_wall = time.time()
         self._finalized = False
+        self.s3_key: Optional[str] = None
+        self.download_url: Optional[str] = None
         _RECORDING_DIR.mkdir(parents=True, exist_ok=True)
 
     def write_detection_frame(self, frame_bgr) -> None:
@@ -68,10 +70,10 @@ class LiveFeedRecorder:
         except Exception:
             logger.exception("Failed saving %s snapshot for feed %s recording", view, self.feed_id)
 
-    def finalize(self) -> None:
-        """Close the writer, upload finished files, and clean up local copies."""
+    def finalize(self) -> dict[str, Any]:
+        """Close the writer, upload finished files, and return summary."""
         if self._finalized:
-            return
+            return self.get_summary()
         self._finalized = True
         try:
             if self._writer is not None:
@@ -81,13 +83,17 @@ class LiveFeedRecorder:
             logger.exception("Error releasing VideoWriter for feed %s", self.feed_id)
 
         if not storage.is_s3_enabled():
-            return
+            if self._local_path is not None and self._local_path.exists():
+                self.download_url = f"/api/feeds/recordings/{self.session_uid}/video"
+            return self.get_summary()
 
         if self._local_path is not None and self._local_path.exists() and self._frame_count > 0:
             key = f"live_feeds/{self.session_uid}/detection.mp4"
             try:
                 storage.upload_file(self._local_path, key)
                 self._local_path.unlink(missing_ok=True)
+                self.s3_key = key
+                self.download_url = storage.presigned_url(key)
                 logger.info(
                     "Uploaded live recording for feed %s -> %s (%d frames)",
                     self.feed_id, key, self._frame_count,
@@ -114,6 +120,29 @@ class LiveFeedRecorder:
                             jpg_path, self.feed_id,
                         )
             _cleanup_empty_dirs(snap_root)
+
+        return self.get_summary()
+
+    def get_summary(self) -> dict[str, Any]:
+        duration_s = round(time.time() - self._start_wall, 2)
+        url = self.download_url
+        if not url and self.s3_key and storage.is_s3_enabled():
+            try:
+                url = storage.presigned_url(self.s3_key)
+            except Exception:
+                pass
+        if not url and self._local_path and self._local_path.exists():
+            url = f"/api/feeds/recordings/{self.session_uid}/video"
+
+        return {
+            "feed_id": self.feed_id,
+            "session_uid": self.session_uid,
+            "frame_count": self._frame_count,
+            "duration_s": duration_s,
+            "s3_key": self.s3_key,
+            "download_url": url,
+            "is_finalized": self._finalized,
+        }
 
 
 def _cleanup_empty_dirs(root: Path) -> None:

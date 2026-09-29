@@ -83,6 +83,7 @@ class ImageAnalysisResult(BaseModel):
     clusters: ClusterSummary
     risk: RiskSummary
     images: Optional[ImageVisualizations] = None
+    s3_urls: Optional[dict[str, str]] = None
     warnings: list[str] = Field(default_factory=list)
 
 
@@ -171,6 +172,7 @@ def frame_result_to_image_result(
     visible_count: Optional[int] = None,
     detector_latency_ms: Optional[float] = None,
     images: Optional[ImageVisualizations] = None,
+    s3_urls: Optional[dict[str, str]] = None,
 ) -> ImageAnalysisResult:
     inf = result.inference
     return ImageAnalysisResult(
@@ -182,7 +184,7 @@ def frame_result_to_image_result(
         device=inf.device,
         latency_ms=round(inf.latency_ms, 2),
         detector_latency_ms=round(detector_latency_ms, 2) if detector_latency_ms is not None else None,
-        n_points=int(len(result.localization.points_xy)),
+        n_points=len(result.localization.points_xy),
         clusters=ClusterSummary(
             n_clusters=result.clusters.n_clusters,
             n_noise=result.clusters.n_noise,
@@ -196,6 +198,7 @@ def frame_result_to_image_result(
             components=result.risk.components,
         ),
         images=images,
+        s3_urls=s3_urls,
         warnings=list(inf.warnings),
     )
 

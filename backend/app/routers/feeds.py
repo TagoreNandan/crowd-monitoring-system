@@ -27,12 +27,14 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 import uuid
 from pathlib import Path
 from typing import Any, List, Optional
 
 import cv2
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi.responses import FileResponse, RedirectResponse
 from pydantic import BaseModel, Field
 
 from crowd_monitoring.detection import PersonDetector
@@ -107,6 +109,7 @@ class FeedSessionResponse(BaseModel):
     frames_produced: int = 0
     error_count: int = 0
     started_at: Optional[float] = None
+    is_recording: bool = False
     latest_metrics: Optional[FeedMetricsResponse] = None
 
 
@@ -149,6 +152,7 @@ def _build_feed_response(session: RealtimeFeedSession, source_type: str) -> Feed
         frames_produced=session.frames_produced,
         error_count=session.error_count,
         started_at=session.started_at,
+        is_recording=session.session_id in _feed_recorders,
         latest_metrics=latest_metrics,
     )
 
@@ -452,8 +456,7 @@ async def create_feed(
         raise HTTPException(status_code=500, detail=f"Failed to start feed: {exc}") from exc
 
     _active_feeds[feed_id] = session
-    if storage.is_s3_enabled():
-        _feed_recorders[feed_id] = LiveFeedRecorder(feed_id)
+    # Recording is now manual/on-demand via /api/feeds/{feed_id}/record/start
     return _build_feed_response(session, req.source_type)
 
 
@@ -587,3 +590,132 @@ async def _finalize_feed_session(
             data={"feed_id": feed_id, "status": "stopped"},
         ),
     )
+
+
+@router.post("/{feed_id}/record/start")
+async def start_feed_recording(
+    feed_id: str,
+    connection_manager: ConnectionManager = Depends(get_connection_manager),
+):
+    """Start recording detection-view video and snapshots for an active feed session."""
+    session = _active_feeds.get(feed_id)
+    if session is None or not session.is_alive:
+        raise HTTPException(status_code=404, detail=f"Live feed '{feed_id}' is not active or running")
+
+    if feed_id in _feed_recorders:
+        rec = _feed_recorders[feed_id]
+        return {
+            "status": "already_recording",
+            "feed_id": feed_id,
+            "recording": True,
+            "session_uid": rec.session_uid,
+            "started_at": rec._start_wall,
+            "duration_s": round(time.time() - rec._start_wall, 1),
+        }
+
+    recorder = LiveFeedRecorder(feed_id)
+    _feed_recorders[feed_id] = recorder
+    logger.info("Manual recording started for feed %s (session %s)", feed_id, recorder.session_uid)
+
+    await connection_manager.broadcast(
+        connection_manager.feed_channel(feed_id),
+        WSEnvelope(
+            type=WSEventType.FEED_STATUS,
+            job_id=feed_id,
+            data={
+                "feed_id": feed_id,
+                "event": "recording_started",
+                "recording": True,
+                "session_uid": recorder.session_uid,
+            },
+        ),
+    )
+
+    return {
+        "status": "started",
+        "feed_id": feed_id,
+        "recording": True,
+        "session_uid": recorder.session_uid,
+        "started_at": recorder._start_wall,
+        "message": "Live feed recording started",
+    }
+
+
+@router.post("/{feed_id}/record/stop")
+async def stop_feed_recording(
+    feed_id: str,
+    connection_manager: ConnectionManager = Depends(get_connection_manager),
+):
+    """Stop active recording for a feed session, finalize output, and upload to S3 if configured."""
+    recorder = _feed_recorders.pop(feed_id, None)
+    if recorder is None:
+        raise HTTPException(status_code=400, detail=f"No active recording for feed '{feed_id}'")
+
+    summary = await asyncio.to_thread(recorder.finalize)
+    logger.info("Manual recording stopped for feed %s (summary: %s)", feed_id, summary)
+
+    await connection_manager.broadcast(
+        connection_manager.feed_channel(feed_id),
+        WSEnvelope(
+            type=WSEventType.FEED_STATUS,
+            job_id=feed_id,
+            data={
+                "feed_id": feed_id,
+                "event": "recording_stopped",
+                "recording": False,
+                "summary": summary,
+            },
+        ),
+    )
+
+    return {
+        "status": "stopped",
+        "feed_id": feed_id,
+        "recording": False,
+        "summary": summary,
+        "message": "Live feed recording stopped and saved",
+    }
+
+
+@router.get("/{feed_id}/record/status")
+async def get_feed_recording_status(feed_id: str):
+    """Check whether a feed is currently being recorded."""
+    session = _active_feeds.get(feed_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail=f"Feed '{feed_id}' not found")
+    recorder = _feed_recorders.get(feed_id)
+    if recorder is None:
+        return {
+            "feed_id": feed_id,
+            "recording": False,
+            "session_uid": None,
+            "duration_s": 0,
+            "frames": 0,
+        }
+    return {
+        "feed_id": feed_id,
+        "recording": True,
+        "session_uid": recorder.session_uid,
+        "duration_s": round(time.time() - recorder._start_wall, 1),
+        "frames": recorder._frame_count,
+    }
+
+
+@router.get("/recordings/{session_uid}/video")
+async def get_recording_video(session_uid: str):
+    """Serve or redirect to a finished live recording MP4."""
+    key = f"live_feeds/{session_uid}/detection.mp4"
+    if storage.is_s3_enabled():
+        return RedirectResponse(
+            url=storage.presigned_url(key),
+            status_code=307,
+            headers={
+                "Cache-Control": "no-cache, no-store, must-revalidate",
+                "Pragma": "no-cache",
+                "Expires": "0",
+            },
+        )
+    local_path = Path("data/live_recordings") / f"{session_uid}_detection.mp4"
+    if local_path.exists():
+        return FileResponse(path=local_path, media_type="video/mp4", filename=f"{session_uid}.mp4")
+    raise HTTPException(status_code=404, detail=f"Recording '{session_uid}' not found")
