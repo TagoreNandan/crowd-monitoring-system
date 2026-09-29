@@ -72,6 +72,21 @@ def upload_bytes(data: bytes, key: str, content_type: str = "application/octet-s
     _client().put_object(Bucket=_bucket(), Key=key, Body=data, ContentType=content_type)
 
 
+def object_exists(key: str) -> bool:
+    """Return whether an S3 object exists, propagating non-not-found errors."""
+    try:
+        _client().head_object(Bucket=_bucket(), Key=key)
+        return True
+    except Exception as exc:
+        response = getattr(exc, "response", {})
+        error = response.get("Error", {}) if isinstance(response, dict) else {}
+        code = str(error.get("Code", ""))
+        status = response.get("ResponseMetadata", {}).get("HTTPStatusCode") if isinstance(response, dict) else None
+        if code in {"404", "NoSuchKey", "NotFound"} or status == 404:
+            return False
+        raise
+
+
 
 def get_default_ttl() -> int:
     """Get the default pre-signed URL TTL in seconds from S3_PRESIGNED_TTL env var (default: 300s / 5 mins)."""
@@ -82,23 +97,34 @@ def get_default_ttl() -> int:
         return 300
 
 
-def presigned_url(key: str, expires_in: int | None = None) -> str:
+def presigned_url(
+    key: str,
+    expires_in: int | None = None,
+    response_disposition: str | None = None,
+) -> str:
     """A temporary, signed URL the browser can GET directly from S3 --
     used instead of streaming the file through FastAPI."""
     if expires_in is None:
         expires_in = get_default_ttl()
+    params: dict[str, Any] = {"Bucket": _bucket(), "Key": key}
+    if response_disposition:
+        params["ResponseContentDisposition"] = f'attachment; filename="{response_disposition}"'
     return _client().generate_presigned_url(
         "get_object",
-        Params={"Bucket": _bucket(), "Key": key},
+        Params=params,
         ExpiresIn=expires_in,
     )
 
 
-def get_presigned_url_info(key: str, expires_in: int | None = None) -> dict[str, Any]:
+def get_presigned_url_info(
+    key: str,
+    expires_in: int | None = None,
+    response_disposition: str | None = None,
+) -> dict[str, Any]:
     """Return pre-signed URL along with TTL and expiration timestamp for frontend auto-renewal."""
     if expires_in is None:
         expires_in = get_default_ttl()
-    url = presigned_url(key, expires_in=expires_in)
+    url = presigned_url(key, expires_in=expires_in, response_disposition=response_disposition)
     now = int(time.time())
     return {
         "url": url,

@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import desc
+from sqlalchemy import desc, or_
 from sqlalchemy.orm import Session
 
 from .. import storage
@@ -83,13 +83,29 @@ def list_activity(
         query = query.filter(ActivityLog.action == action)
     if severity:
         query = query.filter(ActivityLog.severity == severity)
+    if has_download is True:
+        query = query.filter(
+            ActivityLog.output_keys.is_not(None),
+            ActivityLog.output_keys != "",
+            ActivityLog.output_keys != "{}",
+        )
+    elif has_download is False:
+        query = query.filter(
+            or_(
+                ActivityLog.output_keys.is_(None),
+                ActivityLog.output_keys == "",
+                ActivityLog.output_keys == "{}",
+            )
+        )
 
-    entries = query.order_by(desc(ActivityLog.timestamp), desc(ActivityLog.id)).all()
-    items = [_to_activity_item(entry) for entry in entries]
-    if has_download is not None:
-        items = [item for item in items if item.has_download == has_download]
-    total = len(items)
-    return ActivityListResponse(items=items[offset : offset + limit], total=total)
+    total = query.count()
+    entries = (
+        query.order_by(desc(ActivityLog.timestamp), desc(ActivityLog.id))
+        .offset(offset)
+        .limit(limit)
+        .all()
+    )
+    return ActivityListResponse(items=[_to_activity_item(entry) for entry in entries], total=total)
 
 
 @router.get("/{activity_id}/download", response_model=ActivityDownloadResponse)
@@ -107,11 +123,15 @@ def download_activity_output(
         raise HTTPException(status_code=404, detail="Requested output view is not available")
 
     if entry.storage_backend == "s3":
-        try:
-            url_info = storage.get_presigned_url_info(key)
-        except Exception as exc:
-            raise HTTPException(status_code=410, detail="The requested output is no longer available") from exc
         filename = Path(key).name or f"{entry.job_id}_{view}"
+        try:
+            if not storage.object_exists(key):
+                raise HTTPException(status_code=410, detail="The requested output is no longer available")
+            url_info = storage.get_presigned_url_info(key, response_disposition=filename)
+        except HTTPException:
+            raise
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail="The output storage service is temporarily unavailable") from exc
         response = ActivityDownloadResponse(
             mode="s3",
             url=url_info["url"],

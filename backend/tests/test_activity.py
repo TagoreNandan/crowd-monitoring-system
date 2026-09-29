@@ -113,12 +113,13 @@ def test_s3_download_returns_presigned_url_info(monkeypatch, client):
     )
     monkeypatch.setattr(
         "backend.app.routers.activity.storage.get_presigned_url_info",
-        lambda key: {
+        lambda key, response_disposition=None: {
             "url": "https://signed.example/output.jpg",
             "expires_in": 300,
             "expires_at": 1234567890,
         },
     )
+    monkeypatch.setattr("backend.app.routers.activity.storage.object_exists", lambda key: True)
 
     response = client.get(
         f"/api/activity/{entry.id}/download?view=detection",
@@ -134,6 +135,85 @@ def test_s3_download_returns_presigned_url_info(monkeypatch, client):
         "filename": "detection.jpg",
         "view": "detection",
     }
+
+
+def test_activity_sql_pagination_and_download_filter(client):
+    admin = _create_user("admin")
+    output_values = [
+        {"detection": "jobs/pagination-1/detection.jpg"},
+        {"detection": "jobs/pagination-2/detection.jpg"},
+    ]
+    for output_keys in output_values:
+        _add_activity(
+            admin,
+            action="PAGINATION_TEST",
+            output_keys=json.dumps(output_keys),
+            storage_backend="s3",
+        )
+    _add_activity(admin, action="PAGINATION_TEST")
+
+    headers = {"Authorization": f"Bearer {_token(admin)}"}
+    response = client.get(
+        f"/api/activity?username={admin.username}&action=PAGINATION_TEST&has_download=true&limit=1&offset=1",
+        headers=headers,
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["total"] == 2
+    assert len(data["items"]) == 1
+    assert data["items"][0]["has_download"] is True
+
+    no_output_response = client.get(
+        f"/api/activity?username={admin.username}&action=PAGINATION_TEST&has_download=false",
+        headers=headers,
+    )
+    assert no_output_response.status_code == 200
+    assert no_output_response.json()["total"] == 1
+
+
+def test_s3_download_returns_410_when_object_is_deleted(monkeypatch, client):
+    analyst = _create_user("analyst")
+    entry = _add_activity(
+        analyst,
+        job_id="deleted-output",
+        job_type="IMAGE",
+        output_keys=json.dumps({"detection": "jobs/deleted-output/detection.jpg"}),
+        storage_backend="s3",
+    )
+    monkeypatch.setattr("backend.app.routers.activity.storage.object_exists", lambda key: False)
+
+    response = client.get(
+        f"/api/activity/{entry.id}/download?view=detection",
+        headers={"Authorization": f"Bearer {_token(analyst)}"},
+    )
+
+    assert response.status_code == 410
+    assert response.json()["detail"] == "The requested output is no longer available"
+
+
+def test_s3_download_returns_503_for_storage_errors(monkeypatch, client):
+    analyst = _create_user("analyst")
+    entry = _add_activity(
+        analyst,
+        job_id="unavailable-output",
+        job_type="IMAGE",
+        output_keys=json.dumps({"detection": "jobs/unavailable-output/detection.jpg"}),
+        storage_backend="s3",
+    )
+
+    def raise_storage_error(key):
+        raise RuntimeError("S3 unavailable")
+
+    monkeypatch.setattr("backend.app.routers.activity.storage.object_exists", raise_storage_error)
+
+    response = client.get(
+        f"/api/activity/{entry.id}/download?view=detection",
+        headers={"Authorization": f"Bearer {_token(analyst)}"},
+    )
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == "The output storage service is temporarily unavailable"
 
 
 def test_rows_without_outputs_return_404(client):
