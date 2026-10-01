@@ -51,7 +51,7 @@ from crowd_monitoring.overlay import draw_density_heatmap_overlay, draw_stats_pa
 from crowd_monitoring.streaming import FileVideoSource
 from crowd_monitoring.tracking import PersonTracker
 from crowd_monitoring.video import StreamState
-from crowd_monitoring.video_encoding import ensure_browser_compatible_video
+from crowd_monitoring.video_encoding import ensure_browser_compatible_video, get_preferred_video_fourcc
 
 from .. import storage
 from ..auth.dependencies import log_activity
@@ -329,7 +329,7 @@ async def run_video_job(
             )
             if annotated_writer is None:
                 h, w = annotated.shape[:2]
-                fourcc = cv2.VideoWriter.fourcc(*"mp4v")
+                fourcc = get_preferred_video_fourcc()
                 annotated_writer = await runtime.run_sync(
                     cv2.VideoWriter, str(annotated_path), fourcc, output_fps, (w, h)
                 )

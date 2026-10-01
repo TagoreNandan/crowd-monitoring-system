@@ -40,7 +40,13 @@ _load_env_if_present()
 
 def is_s3_enabled() -> bool:
     _load_env_if_present()
-    return os.environ.get("STORAGE_BACKEND", "local").lower() == "s3"
+    if os.environ.get("STORAGE_BACKEND", "local").lower() != "s3":
+        return False
+    try:
+        import importlib.util
+        return importlib.util.find_spec("boto3") is not None and bool(os.environ.get("S3_BUCKET_NAME"))
+    except Exception:
+        return False
 
 
 def _client():

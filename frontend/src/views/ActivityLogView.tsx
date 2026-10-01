@@ -103,8 +103,14 @@ export const ActivityLogView: React.FC = () => {
     setDownloadState({ id: item.id, view });
     try {
       const download = await requestActivityDownload(item.id, view, token || undefined);
+      let downloadUrl = download.url;
+      const currentToken = token || getStoredToken();
+      if (currentToken && (downloadUrl.startsWith('/api') || !downloadUrl.startsWith('http'))) {
+        const sep = downloadUrl.includes('?') ? '&' : '?';
+        downloadUrl = `${downloadUrl}${sep}token=${encodeURIComponent(currentToken)}`;
+      }
       const anchor = document.createElement('a');
-      anchor.href = download.url;
+      anchor.href = downloadUrl;
       anchor.download = download.filename;
       anchor.target = '_blank';
       anchor.rel = 'noopener noreferrer';

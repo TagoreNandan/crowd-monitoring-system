@@ -147,7 +147,7 @@ def download_activity_output(
             url = f"/api/jobs/{entry.job_id}/video/{view}"
             extension = "mp4"
         else:
-            url = f"/api/jobs/jobs/{entry.job_id}/image/{view}"
+            url = f"/api/jobs/{entry.job_id}/image/{view}"
             extension = "jpg"
         response = ActivityDownloadResponse(
             mode="local",

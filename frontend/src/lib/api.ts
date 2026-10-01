@@ -341,25 +341,6 @@ export async function loginUser(credentials: { username: string; password: strin
   return data;
 }
 
-export async function registerUser(payload: {
-  username: string;
-  email: string;
-  password: string;
-  full_name?: string;
-}): Promise<User> {
-  const res = await fetch(`${API_BASE}/auth/register`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  });
-
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err.detail || 'Registration failed');
-  }
-
-  return res.json();
-}
 
 export async function getCurrentUser(token?: string): Promise<User> {
   const authToken = token || getStoredToken();
@@ -394,6 +375,41 @@ export async function getAdminUsers(token?: string): Promise<User[]> {
 
   if (!res.ok) throw new Error('Failed to load user directory');
   return res.json();
+}
+
+export async function createAdminUser(
+  data: { username: string; email: string; password: string; full_name?: string; role?: string },
+  token?: string
+): Promise<User> {
+  const authToken = token || getStoredToken();
+  const res = await fetch(`${API_BASE}/admin/users`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${authToken}`,
+    },
+    body: JSON.stringify(data),
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || 'Failed to create user');
+  }
+
+  return res.json();
+}
+
+export async function deleteAdminUser(userId: number, token?: string): Promise<void> {
+  const authToken = token || getStoredToken();
+  const res = await fetch(`${API_BASE}/admin/users/${userId}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${authToken}` },
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || 'Failed to delete user');
+  }
 }
 
 export async function updateAdminUser(

@@ -7,11 +7,13 @@ from typing import Any, List, Optional
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_serializer
 
 
-class UserRegisterRequest(BaseModel):
+
+class UserCreateRequest(BaseModel):
     username: str = Field(..., min_length=3, max_length=50)
     email: EmailStr
     password: str = Field(..., min_length=6)
     full_name: Optional[str] = Field("", max_length=100)
+    role: Optional[str] = Field("analyst", pattern="^(admin|analyst)$")
 
 
 class UserLoginRequest(BaseModel):

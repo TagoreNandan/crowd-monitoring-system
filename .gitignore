@@ -30,3 +30,8 @@ examples/*.mp4
 .DS_Store
 data/*.db
 *.db
+data/live_recordings/
+data/jobs/
+
+# Frontend build output
+frontend/dist/

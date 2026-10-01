@@ -251,6 +251,7 @@ async def get_job_video_view(
     return _serve_job_video(job_id, job_store, view=view)
 
 
+@router.get("/{job_id}/video/{view}/url")
 @router.get("/jobs/{job_id}/video/{view}/url")
 async def get_job_video_url_info(
     job_id: str,
@@ -327,6 +328,7 @@ def _serve_job_video(job_id: str, job_store: JobStore, view: str):
     return FileResponse(path=path, media_type="video/mp4", filename=f"{job_id}_{view}.mp4")
 
 
+@router.get("/{job_id}/image/{view}")
 @router.get("/jobs/{job_id}/image/{view}")
 async def get_job_image(
     job_id: str,
@@ -364,6 +366,7 @@ async def get_job_image(
     raise HTTPException(status_code=404, detail=f"Image view '{view}' not found for job '{job_id}'")
 
 
+@router.get("/{job_id}/image/{view}/url")
 @router.get("/jobs/{job_id}/image/{view}/url")
 async def get_job_image_url_info(
     job_id: str,

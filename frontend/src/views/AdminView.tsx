@@ -1,7 +1,14 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { RefreshCw, Search, Filter } from 'lucide-react';
+import { RefreshCw, Search, Filter, UserPlus, Trash2, X, Shield } from 'lucide-react';
 import type { ActivityLog, AdminOverviewStats, User } from '../types/api';
-import { getAdminStats, getAdminUsers, updateAdminUser, getAdminActivities } from '../lib/api';
+import {
+  getAdminStats,
+  getAdminUsers,
+  updateAdminUser,
+  createAdminUser,
+  deleteAdminUser,
+  getAdminActivities,
+} from '../lib/api';
 import { useAuth } from '../context/AuthContext';
 import { Badge } from '../components/ui/Badge';
 import { Button } from '../components/ui/Button';
@@ -17,6 +24,16 @@ export const AdminView: React.FC = () => {
   const [selectedSeverity, setSelectedSeverity] = useState<string>('ALL');
   const [userSearch, setUserSearch] = useState<string>('');
   const [activitySearch, setActivitySearch] = useState<string>('');
+
+  // Add User Modal State
+  const [isAddUserOpen, setIsAddUserOpen] = useState(false);
+  const [newUsername, setNewUsername] = useState('');
+  const [newEmail, setNewEmail] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [newFullName, setNewFullName] = useState('');
+  const [newRole, setNewRole] = useState<'analyst' | 'admin'>('analyst');
+  const [addUserLoading, setAddUserLoading] = useState(false);
+  const [addUserError, setAddUserError] = useState<string | null>(null);
 
   const loadData = async () => {
     try {
@@ -65,6 +82,47 @@ export const AdminView: React.FC = () => {
       await loadData();
     } catch (err: any) {
       alert(err.message || 'Failed to change role');
+    }
+  };
+
+  const handleCreateUser = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!token) return;
+    setAddUserLoading(true);
+    setAddUserError(null);
+    try {
+      await createAdminUser(
+        {
+          username: newUsername.trim(),
+          email: newEmail.trim(),
+          password: newPassword,
+          full_name: newFullName.trim() || undefined,
+          role: newRole,
+        },
+        token
+      );
+      setIsAddUserOpen(false);
+      setNewUsername('');
+      setNewEmail('');
+      setNewPassword('');
+      setNewFullName('');
+      setNewRole('analyst');
+      await loadData();
+    } catch (err: any) {
+      setAddUserError(err.message || 'Failed to create user');
+    } finally {
+      setAddUserLoading(false);
+    }
+  };
+
+  const handleDeleteUser = async (user: User) => {
+    if (!token) return;
+    if (!confirm(`Are you sure you want to permanently delete user "${user.username}"?`)) return;
+    try {
+      await deleteAdminUser(user.id, token);
+      await loadData();
+    } catch (err: any) {
+      alert(err.message || 'Failed to delete user');
     }
   };
 
@@ -326,8 +384,8 @@ export const AdminView: React.FC = () => {
       {/* TAB 2: USER MANAGEMENT */}
       {activeTab === 'users' && (
         <div className="space-y-4">
-          {/* User Search Bar */}
-          <div className="flex items-center justify-between gap-3 p-3 bg-zinc-900/30 border border-zinc-800 rounded-lg">
+          {/* User Search & Add User Bar */}
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 p-3 bg-zinc-900/30 border border-zinc-800 rounded-lg">
             <div className="relative flex-1 max-w-sm">
               <input
                 type="text"
@@ -338,7 +396,22 @@ export const AdminView: React.FC = () => {
               />
               <Search className="w-3.5 h-3.5 text-zinc-500 absolute left-2.5 top-2" />
             </div>
-            <span className="text-[11px] font-mono text-zinc-500">{filteredUsers.length} accounts</span>
+
+            <div className="flex items-center gap-3 self-end sm:self-auto">
+              <span className="text-[11px] font-mono text-zinc-500">{filteredUsers.length} accounts</span>
+              <Button
+                variant="default"
+                size="sm"
+                onClick={() => {
+                  setAddUserError(null);
+                  setIsAddUserOpen(true);
+                }}
+                className="text-xs h-7 px-2.5 flex items-center gap-1.5"
+              >
+                <UserPlus className="w-3.5 h-3.5" />
+                <span>Add User</span>
+              </Button>
+            </div>
           </div>
 
           {/* User Table */}
@@ -397,6 +470,15 @@ export const AdminView: React.FC = () => {
                               >
                                 {u.is_active ? 'Deactivate' : 'Activate'}
                               </Button>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => handleDeleteUser(u)}
+                                className="text-[11px] h-7 px-2 text-rose-400 hover:text-rose-300 hover:bg-rose-950/40"
+                                title="Delete user account"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </Button>
                             </>
                           )}
                         </td>
@@ -406,6 +488,123 @@ export const AdminView: React.FC = () => {
                 </tbody>
               </table>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Add User */}
+      {isAddUserOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="relative w-full max-w-sm bg-zinc-950 border border-zinc-800 rounded-lg shadow-2xl p-6 text-zinc-100">
+            <button
+              onClick={() => setIsAddUserOpen(false)}
+              className="absolute top-4 right-4 p-1 rounded-md text-zinc-400 hover:text-zinc-100 hover:bg-zinc-900 transition-colors cursor-pointer"
+            >
+              <X className="w-4 h-4" />
+            </button>
+
+            <div className="mb-5 space-y-1">
+              <div className="flex items-center gap-2">
+                <div className="p-1.5 rounded-md bg-zinc-900 border border-zinc-800 text-zinc-300">
+                  <UserPlus className="w-4 h-4" />
+                </div>
+                <h2 className="text-base font-semibold tracking-tight text-zinc-100">
+                  Add New User
+                </h2>
+              </div>
+              <p className="text-xs text-zinc-400">
+                Provision a new operator or analyst account.
+              </p>
+            </div>
+
+            {addUserError && (
+              <div className="mb-4 p-2.5 rounded-md bg-rose-950/40 border border-rose-800/50 text-rose-300 text-xs">
+                {addUserError}
+              </div>
+            )}
+
+            <form onSubmit={handleCreateUser} className="space-y-3">
+              <div className="space-y-1">
+                <label className="block text-xs font-medium text-zinc-300">Username *</label>
+                <input
+                  type="text"
+                  required
+                  value={newUsername}
+                  onChange={(e) => setNewUsername(e.target.value)}
+                  placeholder="e.g. jdoe"
+                  className="w-full px-3 py-1.5 bg-zinc-900/60 border border-zinc-800 rounded-md text-xs text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-400"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="block text-xs font-medium text-zinc-300">Email *</label>
+                <input
+                  type="email"
+                  required
+                  value={newEmail}
+                  onChange={(e) => setNewEmail(e.target.value)}
+                  placeholder="e.g. jdoe@example.com"
+                  className="w-full px-3 py-1.5 bg-zinc-900/60 border border-zinc-800 rounded-md text-xs text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-400"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="block text-xs font-medium text-zinc-300">Full Name</label>
+                <input
+                  type="text"
+                  value={newFullName}
+                  onChange={(e) => setNewFullName(e.target.value)}
+                  placeholder="e.g. John Doe"
+                  className="w-full px-3 py-1.5 bg-zinc-900/60 border border-zinc-800 rounded-md text-xs text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-400"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="block text-xs font-medium text-zinc-300">Password *</label>
+                <input
+                  type="password"
+                  required
+                  minLength={6}
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  placeholder="At least 6 characters"
+                  className="w-full px-3 py-1.5 bg-zinc-900/60 border border-zinc-800 rounded-md text-xs text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-400"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="block text-xs font-medium text-zinc-300">Role</label>
+                <select
+                  value={newRole}
+                  onChange={(e) => setNewRole(e.target.value as 'analyst' | 'admin')}
+                  className="w-full px-3 py-1.5 bg-zinc-900 border border-zinc-800 rounded-md text-xs text-zinc-100 focus:outline-none focus:ring-1 focus:ring-zinc-400"
+                >
+                  <option value="analyst">Analyst (Standard User)</option>
+                  <option value="admin">Administrator (Full Access)</option>
+                </select>
+              </div>
+
+              <div className="pt-2 flex gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setIsAddUserOpen(false)}
+                  className="w-1/2"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="submit"
+                  variant="default"
+                  size="sm"
+                  isLoading={addUserLoading}
+                  className="w-1/2"
+                >
+                  Create User
+                </Button>
+              </div>
+            </form>
           </div>
         </div>
       )}

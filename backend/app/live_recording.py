@@ -19,8 +19,9 @@ from pathlib import Path
 from typing import Any, Optional
 
 import cv2
+import numpy as np
 
-from crowd_monitoring.video_encoding import ensure_browser_compatible_video
+from crowd_monitoring.video_encoding import ensure_browser_compatible_video, get_preferred_video_fourcc
 
 from . import storage
 from .settings import get_settings
@@ -37,28 +38,41 @@ class LiveFeedRecorder:
         self._writer: Optional[cv2.VideoWriter] = None
         self._local_path: Optional[Path] = None
         self._frame_count = 0
+        self._fps = float(get_settings().live_feed_recording_fps)
         self._start_wall = time.time()
+        self._last_frame: Optional[np.ndarray] = None
         self._finalized = False
         self._lock = threading.Lock()
         self.s3_key: Optional[str] = None
         self.download_url: Optional[str] = None
         _RECORDING_DIR.mkdir(parents=True, exist_ok=True)
 
-    def write_detection_frame(self, frame_bgr) -> None:
-        """Append one detection-view frame, opening the writer lazily."""
+    def write_detection_frame(self, frame_bgr: np.ndarray) -> None:
+        """Append detection-view frames paced to match wall-clock elapsed time."""
         with self._lock:
             if self._finalized:
                 return
             try:
-                if self._writer is None:
+                if self._writer is None or not self._writer.isOpened():
                     h, w = frame_bgr.shape[:2]
                     self._local_path = _RECORDING_DIR / f"{self.session_uid}_detection.mp4"
-                    fourcc = cv2.VideoWriter.fourcc(*"mp4v")
-                    fps = get_settings().live_feed_recording_fps
-                    self._writer = cv2.VideoWriter(str(self._local_path), fourcc, fps, (w, h))
-                    logger.info("Started live recording for feed %s at %s", self.feed_id, self._local_path)
-                self._writer.write(frame_bgr)
-                self._frame_count += 1
+                    fourcc = get_preferred_video_fourcc()
+                    self._writer = cv2.VideoWriter(str(self._local_path), fourcc, self._fps, (w, h))
+                    if not self._writer.isOpened():
+                        logger.warning("Preferred codec failed to open VideoWriter; falling back to mp4v")
+                        fourcc = cv2.VideoWriter.fourcc(*"mp4v")
+                        self._writer = cv2.VideoWriter(str(self._local_path), fourcc, self._fps, (w, h))
+                    logger.info("Started live recording for feed %s at %s (%dx%d @ %.1ffps)", self.feed_id, self._local_path, w, h, self._fps)
+
+                # Determine how many frames should exist by now based on real wall-clock time
+                elapsed = max(0.0, time.time() - self._start_wall)
+                target_frames = max(1, round(elapsed * self._fps))
+                frames_to_write = max(1, target_frames - self._frame_count)
+
+                for _ in range(frames_to_write):
+                    self._writer.write(frame_bgr)
+                self._frame_count += frames_to_write
+                self._last_frame = frame_bgr.copy()
             except Exception:
                 logger.exception("Failed writing detection frame for feed %s recording", self.feed_id)
 
@@ -76,13 +90,22 @@ class LiveFeedRecorder:
             logger.exception("Failed saving %s snapshot for feed %s recording", view, self.feed_id)
 
     def finalize(self) -> dict[str, Any]:
-        """Close the writer, upload finished files, and return summary."""
+        """Close the writer, pad to full wall duration, upload finished files, and return summary."""
         with self._lock:
             if self._finalized:
                 return self.get_summary()
             self._finalized = True
             try:
-                if self._writer is not None:
+                if self._writer is not None and self._writer.isOpened():
+                    # Pad out any trailing elapsed time up to the stop moment with the last frame
+                    if self._last_frame is not None:
+                        elapsed = max(0.0, time.time() - self._start_wall)
+                        target_frames = max(1, round(elapsed * self._fps))
+                        remaining = target_frames - self._frame_count
+                        if remaining > 0:
+                            for _ in range(remaining):
+                                self._writer.write(self._last_frame)
+                            self._frame_count += remaining
                     self._writer.release()
                     self._writer = None
             except Exception:
@@ -116,6 +139,10 @@ class LiveFeedRecorder:
                     "Failed to upload live recording for feed %s -- local file kept at %s",
                     self.feed_id, self._local_path,
                 )
+                self.download_url = f"/api/feeds/recordings/{self.session_uid}/video"
+
+        if self.download_url is None and self._local_path is not None and self._local_path.exists():
+            self.download_url = f"/api/feeds/recordings/{self.session_uid}/video"
 
         snap_root = _RECORDING_DIR / self.session_uid
         if snap_root.exists():

@@ -12,54 +12,9 @@ from ..auth.dependencies import get_current_user, log_activity
 from ..auth.security import create_access_token, hash_password, verify_password
 from ..db.models import User
 from ..db.session import get_db
-from ..schemas.auth import TokenResponse, UserLoginRequest, UserRegisterRequest, UserResponse
+from ..schemas.auth import TokenResponse, UserLoginRequest, UserResponse
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
-
-
-@router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
-def register(
-    req: UserRegisterRequest,
-    db: Session = Depends(get_db),
-):
-    """Register a new user account."""
-    # Check if username or email already taken
-    existing = db.query(User).filter(
-        (User.username == req.username) | (User.email == req.email)
-    ).first()
-    if existing:
-        if existing.username == req.username:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Username is already registered",
-            )
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Email is already registered",
-        )
-
-    user = User(
-        username=req.username,
-        email=req.email,
-        full_name=req.full_name or "",
-        hashed_password=hash_password(req.password),
-        role="analyst",
-        is_active=True,
-    )
-    db.add(user)
-    db.commit()
-    db.refresh(user)
-
-    log_activity(
-        db,
-        action="USER_REGISTERED",
-        category="AUTH",
-        details=f"New user account registered: {user.username} ({user.email})",
-        severity="INFO",
-        user=user,
-    )
-
-    return user
 
 
 @router.post("/login", response_model=TokenResponse)

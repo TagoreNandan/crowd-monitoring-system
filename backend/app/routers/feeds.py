@@ -775,21 +775,31 @@ async def get_recording_video(
     if not re.match(r"^[a-zA-Z0-9_\-]+$", session_uid):
         raise HTTPException(status_code=400, detail="Invalid session UID format")
 
-    key = f"live_feeds/{session_uid}/detection.mp4"
-    if storage.is_s3_enabled():
-        return RedirectResponse(
-            url=storage.presigned_url(key),
-            status_code=307,
-            headers={
-                "Cache-Control": "no-cache, no-store, must-revalidate",
-                "Pragma": "no-cache",
-                "Expires": "0",
-            },
-        )
     base_dir = Path("data/live_recordings").resolve()
     local_path = (base_dir / f"{session_uid}_detection.mp4").resolve()
-    if not str(local_path).startswith(str(base_dir)):
+    base_str = str(base_dir).lower().rstrip("/\\")
+    local_str = str(local_path).lower()
+    if not (local_str.startswith(base_str + "\\") or local_str.startswith(base_str + "/")):
         raise HTTPException(status_code=403, detail="Access denied")
+
+    # If local file exists, serve it directly
     if local_path.exists():
-        return FileResponse(path=local_path, media_type="video/mp4", filename=f"{session_uid}.mp4")
+        return FileResponse(path=str(local_path), media_type="video/mp4", filename=f"{session_uid}.mp4")
+
+    # Otherwise if stored in S3, redirect to presigned URL
+    key = f"live_feeds/{session_uid}/detection.mp4"
+    if storage.is_s3_enabled():
+        try:
+            return RedirectResponse(
+                url=storage.presigned_url(key),
+                status_code=307,
+                headers={
+                    "Cache-Control": "no-cache, no-store, must-revalidate",
+                    "Pragma": "no-cache",
+                    "Expires": "0",
+                },
+            )
+        except Exception:
+            logger.exception("Failed to generate presigned S3 URL for live recording %s", session_uid)
+
     raise HTTPException(status_code=404, detail=f"Recording '{session_uid}' not found")

@@ -4,7 +4,6 @@ import {
   getStoredToken,
   removeStoredToken,
   loginUser,
-  registerUser,
   getCurrentUser,
 } from '../lib/api';
 
@@ -14,7 +13,6 @@ interface AuthContextType {
   isAdmin: boolean;
   isLoading: boolean;
   login: (username: string, password: string) => Promise<void>;
-  register: (username: string, email: string, password: string, fullName?: string) => Promise<void>;
   logout: () => void;
   refreshUser: () => Promise<void>;
 }
@@ -62,16 +60,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const register = async (username: string, email: string, password: string, fullName?: string) => {
-    setIsLoading(true);
-    try {
-      await registerUser({ username, email, password, full_name: fullName });
-      await login(username, password);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
   const logout = () => {
     removeStoredToken();
     setUser(null);
@@ -88,7 +76,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         isAdmin,
         isLoading,
         login,
-        register,
         logout,
         refreshUser,
       }}
