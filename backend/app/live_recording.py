@@ -12,12 +12,15 @@ public method swallows and logs its own exceptions.
 from __future__ import annotations
 
 import logging
+import threading
 import time
 import uuid
 from pathlib import Path
 from typing import Any, Optional
 
 import cv2
+
+from crowd_monitoring.video_encoding import ensure_browser_compatible_video
 
 from . import storage
 from .settings import get_settings
@@ -36,26 +39,28 @@ class LiveFeedRecorder:
         self._frame_count = 0
         self._start_wall = time.time()
         self._finalized = False
+        self._lock = threading.Lock()
         self.s3_key: Optional[str] = None
         self.download_url: Optional[str] = None
         _RECORDING_DIR.mkdir(parents=True, exist_ok=True)
 
     def write_detection_frame(self, frame_bgr) -> None:
         """Append one detection-view frame, opening the writer lazily."""
-        if self._finalized:
-            return
-        try:
-            if self._writer is None:
-                h, w = frame_bgr.shape[:2]
-                self._local_path = _RECORDING_DIR / f"{self.session_uid}_detection.mp4"
-                fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-                fps = get_settings().live_feed_recording_fps
-                self._writer = cv2.VideoWriter(str(self._local_path), fourcc, fps, (w, h))
-                logger.info("Started live recording for feed %s at %s", self.feed_id, self._local_path)
-            self._writer.write(frame_bgr)
-            self._frame_count += 1
-        except Exception:
-            logger.exception("Failed writing detection frame for feed %s recording", self.feed_id)
+        with self._lock:
+            if self._finalized:
+                return
+            try:
+                if self._writer is None:
+                    h, w = frame_bgr.shape[:2]
+                    self._local_path = _RECORDING_DIR / f"{self.session_uid}_detection.mp4"
+                    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+                    fps = get_settings().live_feed_recording_fps
+                    self._writer = cv2.VideoWriter(str(self._local_path), fourcc, fps, (w, h))
+                    logger.info("Started live recording for feed %s at %s", self.feed_id, self._local_path)
+                self._writer.write(frame_bgr)
+                self._frame_count += 1
+            except Exception:
+                logger.exception("Failed writing detection frame for feed %s recording", self.feed_id)
 
     def save_snapshot(self, frame_bgr, view: str) -> None:
         """Save one heatmap/combined frame as a timestamped local JPEG."""
@@ -72,15 +77,23 @@ class LiveFeedRecorder:
 
     def finalize(self) -> dict[str, Any]:
         """Close the writer, upload finished files, and return summary."""
-        if self._finalized:
-            return self.get_summary()
-        self._finalized = True
-        try:
-            if self._writer is not None:
-                self._writer.release()
-                self._writer = None
-        except Exception:
-            logger.exception("Error releasing VideoWriter for feed %s", self.feed_id)
+        with self._lock:
+            if self._finalized:
+                return self.get_summary()
+            self._finalized = True
+            try:
+                if self._writer is not None:
+                    self._writer.release()
+                    self._writer = None
+            except Exception:
+                logger.exception("Error releasing VideoWriter for feed %s", self.feed_id)
+
+        # Transcode local detection video to browser-compatible H.264/yuv420p
+        if self._local_path is not None and self._local_path.exists() and self._frame_count > 0:
+            try:
+                ensure_browser_compatible_video(self._local_path)
+            except Exception:
+                logger.exception("Failed to transcode live recording %s to H.264", self._local_path)
 
         if not storage.is_s3_enabled():
             if self._local_path is not None and self._local_path.exists():
@@ -165,6 +178,7 @@ def recover_orphaned_recordings() -> None:
         session_uid = mp4_path.stem.removesuffix("_detection")
         key = f"live_feeds/{session_uid}/detection.mp4"
         try:
+            ensure_browser_compatible_video(mp4_path)
             storage.upload_file(mp4_path, key)
             mp4_path.unlink(missing_ok=True)
             logger.info("Recovered orphaned live recording %s -> %s", mp4_path, key)

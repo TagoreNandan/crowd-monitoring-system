@@ -32,6 +32,7 @@ export const VideoView: React.FC = () => {
   const pollTimerRef = useRef<any>(null);
   const renewalTimerRef = useRef<any>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const videoObjectUrlRef = useRef<string | null>(null);
 
   const refreshStream = useCallback(async (jobId: string, mode: VideoViewMode, keepPosition = false) => {
     try {
@@ -84,12 +85,20 @@ export const VideoView: React.FC = () => {
       if (wsRef.current) wsRef.current.close();
       if (pollTimerRef.current) clearInterval(pollTimerRef.current);
       if (renewalTimerRef.current) clearTimeout(renewalTimerRef.current);
+      if (videoObjectUrlRef.current) {
+        URL.revokeObjectURL(videoObjectUrlRef.current);
+      }
     };
   }, []);
 
   const resetSelection = (file: File) => {
+    if (videoObjectUrlRef.current) {
+      URL.revokeObjectURL(videoObjectUrlRef.current);
+    }
+    const newUrl = URL.createObjectURL(file);
+    videoObjectUrlRef.current = newUrl;
     setSelectedFile(file);
-    setVideoUrl(URL.createObjectURL(file));
+    setVideoUrl(newUrl);
     setJob(null);
     setMetrics(null);
     setLivePreview(null);

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Upload, RefreshCw, AlertCircle, Sparkles, Cloud, Download } from 'lucide-react';
 import { analyzeImage, getJobImageUrlInfo } from '../lib/api';
 import { downloadFromSrc } from '../lib/download';
@@ -35,10 +35,24 @@ export const ImageView: React.FC = () => {
   const [activeTab, setActiveTab] = useState<Tab>('original');
   const [downloading, setDownloading] = useState(false);
   const [downloadError, setDownloadError] = useState<string | null>(null);
+  const previewUrlRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (previewUrlRef.current) {
+        URL.revokeObjectURL(previewUrlRef.current);
+      }
+    };
+  }, []);
 
   const resetSelection = (file: File) => {
+    if (previewUrlRef.current) {
+      URL.revokeObjectURL(previewUrlRef.current);
+    }
+    const newUrl = URL.createObjectURL(file);
+    previewUrlRef.current = newUrl;
     setSelectedFile(file);
-    setPreviewUrl(URL.createObjectURL(file));
+    setPreviewUrl(newUrl);
     setJobResult(null);
     setError(null);
     setActiveTab('original');

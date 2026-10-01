@@ -1,3 +1,5 @@
+import { getAuthHeaders } from './api';
+
 export async function downloadFromSrc(src: string, filename: string): Promise<void> {
   let objectUrl: string | null = null;
   try {
@@ -11,7 +13,9 @@ export async function downloadFromSrc(src: string, filename: string): Promise<vo
         return;
       }
     } else {
-      const response = await fetch(src);
+      const response = await fetch(src, {
+        headers: { ...getAuthHeaders() },
+      });
       if (!response.ok) throw new Error(`Download request failed (${response.status})`);
       objectUrl = URL.createObjectURL(await response.blob());
     }
