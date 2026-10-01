@@ -59,7 +59,7 @@ export const AdminView: React.FC = () => {
 
   const handleToggleRole = async (user: User) => {
     if (!token) return;
-    const newRole = user.role === 'admin' ? 'user' : 'admin';
+    const newRole = user.role === 'admin' ? 'analyst' : 'admin';
     try {
       await updateAdminUser(user.id, { role: newRole }, token);
       await loadData();

@@ -10,6 +10,7 @@ from __future__ import annotations
 import collections
 from datetime import datetime, timezone
 import logging
+import time
 import uuid
 from typing import Deque, Dict, List, Optional
 
@@ -35,6 +36,7 @@ router = APIRouter(prefix="/api/analytics", tags=["analytics"])
 _timeline_history: Deque[TimelineDataPoint] = collections.deque(maxlen=60)
 _recent_alerts: Deque[AnalyticsAlert] = collections.deque(maxlen=20)
 _fleet_peak_crowd: float = 0.0
+_last_timeline_s: float = 0.0
 
 # Risk priority ordering for fleet-wide aggregation
 RISK_PRIORITY = {
@@ -66,8 +68,8 @@ def get_live_analytics(
 
     active_feeds, feed_peaks, feed_latest_frames = _get_active_feed_sessions()
     enrolled_devices = db.query(Device).all()
-    device_lookup: Dict[str, Device] = {d.device_id: d for d in enrolled_devices}
-    url_lookup: Dict[str, Device] = {d.stream_url: d for d in enrolled_devices}
+    device_lookup: Dict[str, Device] = {str(d.device_id): d for d in enrolled_devices if d.device_id}
+    url_lookup: Dict[str, Device] = {str(d.stream_url): d for d in enrolled_devices if d.stream_url}
 
     now_iso = datetime.now(timezone.utc).isoformat()
     now_time_str = datetime.now(timezone.utc).strftime("%H:%M:%S")
@@ -90,7 +92,9 @@ def get_live_analytics(
         matched_dev = url_lookup.get(desc)
         if not matched_dev:
             for dev in enrolled_devices:
-                if dev.stream_url in desc or dev.device_id in desc:
+                d_url = str(dev.stream_url) if dev.stream_url else ""
+                d_id = str(dev.device_id) if dev.device_id else ""
+                if (d_url and d_url in desc) or (d_id and d_id in desc):
                     matched_dev = dev
                     break
 
@@ -118,8 +122,8 @@ def get_live_analytics(
             highest_risk_priority = current_pri
             highest_risk_status = risk_status
 
-        camera_name = matched_dev.name if matched_dev else f"Stream ({feed_id})"
-        location = matched_dev.location if matched_dev else "Main Concourse"
+        camera_name: str = str(matched_dev.name) if (matched_dev and matched_dev.name) else f"Stream ({feed_id})"
+        location: str = str(matched_dev.location) if (matched_dev and matched_dev.location) else "Main Concourse"
 
         # Generate alert if high crowd or critical risk detected
         if risk_status in ("WARNING", "CRITICAL") or est_count >= 100:
@@ -141,7 +145,7 @@ def get_live_analytics(
         snapshots.append(
             StreamAnalyticsSnapshot(
                 feed_id=feed_id,
-                device_id=matched_dev.device_id if matched_dev else None,
+                device_id=str(matched_dev.device_id) if (matched_dev and matched_dev.device_id) else None,
                 camera_name=camera_name,
                 location=location,
                 status="LIVE" if session.is_running else "STOPPED",
@@ -165,20 +169,24 @@ def get_live_analytics(
 
     avg_fleet_risk_score = round(total_risk_score / len(snapshots), 2) if snapshots else 0.0
 
-    # Record temporal timeline data point
-    timeline_point = TimelineDataPoint(
-        timestamp=now_time_str,
-        total_crowd=round(total_crowd, 1),
-        visible_count=total_visible,
-        active_streams=len(snapshots),
-    )
-    _timeline_history.append(timeline_point)
+    # Record temporal timeline data point (throttled to at most once per second across concurrent client polls)
+    global _last_timeline_s
+    now_monotonic = time.monotonic()
+    if (now_monotonic - _last_timeline_s >= 1.0) or not _timeline_history:
+        timeline_point = TimelineDataPoint(
+            timestamp=now_time_str,
+            total_crowd=round(total_crowd, 1),
+            visible_count=total_visible,
+            active_streams=len(snapshots),
+        )
+        _timeline_history.append(timeline_point)
+        _last_timeline_s = now_monotonic
 
     # Zone Distribution Aggregation
     zone_groups: Dict[str, dict] = {}
     # Seed known zones from enrolled devices
     for dev in enrolled_devices:
-        zone = dev.location or "General Area"
+        zone: str = str(dev.location) if dev.location else "General Area"
         if zone not in zone_groups:
             zone_groups[zone] = {"count": 0.0, "cameras": 0, "highest_risk": "SAFE"}
         zone_groups[zone]["cameras"] += 1

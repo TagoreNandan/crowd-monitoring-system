@@ -74,6 +74,22 @@ def init_db() -> None:
         else:
             logger.info(f"Administrator account '{settings.admin_username}' already exists; preserving existing credentials.")
 
+        # Seed default demonstration analyst account if not present (only in development environments)
+        if settings.environment.lower() in ("development", "dev", "test", "testing"):
+            analyst = db.query(User).filter(User.username == "analyst").first()
+            if not analyst:
+                analyst = User(
+                    username="analyst",
+                    email="analyst@cms.local",
+                    full_name="Operations Analyst",
+                    hashed_password=hash_password("analyst123"),
+                    role="analyst",
+                    is_active=True,
+                )
+                db.add(analyst)
+                db.commit()
+                logger.info("Default demonstration analyst account seeded: username='analyst'")
+
         # Seed initial sample camera if fleet is empty
         if db.query(Device).count() == 0:
             sample_device = Device(

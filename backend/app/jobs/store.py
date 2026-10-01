@@ -109,13 +109,17 @@ class JobStore:
 
     def mark_running(self, job_id: str) -> None:
         with self._lock:
-            record = self._jobs[job_id]
+            record = self._jobs.get(job_id)
+            if record is None:
+                return
             record.status = JobStatus.RUNNING
             record.started_at = time.time()
 
     def update_progress(self, job_id: str, progress: float, message: Optional[str] = None) -> None:
         with self._lock:
-            record = self._jobs[job_id]
+            record = self._jobs.get(job_id)
+            if record is None:
+                return
             record.progress = max(0.0, min(1.0, progress))
             if message is not None:
                 record.message = message
@@ -130,7 +134,9 @@ class JobStore:
         metrics: dict[str, Any],
     ) -> None:
         with self._lock:
-            record = self._jobs[job_id]
+            record = self._jobs.get(job_id)
+            if record is None:
+                return
             record.progress = max(0.0, min(1.0, progress))
             record.current_frame = current_frame
             record.total_frames = total_frames
@@ -139,7 +145,9 @@ class JobStore:
 
     def mark_completed(self, job_id: str, result: dict[str, Any]) -> None:
         with self._lock:
-            record = self._jobs[job_id]
+            record = self._jobs.get(job_id)
+            if record is None:
+                return
             record.status = JobStatus.COMPLETED
             record.completed_at = time.time()
             record.progress = 1.0
@@ -177,7 +185,9 @@ class JobStore:
 
     def mark_failed(self, job_id: str, error: str) -> None:
         with self._lock:
-            record = self._jobs[job_id]
+            record = self._jobs.get(job_id)
+            if record is None:
+                return
             record.status = JobStatus.FAILED
             record.completed_at = time.time()
             record.error = error

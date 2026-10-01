@@ -53,7 +53,7 @@ class LiveFeedRecorder:
                 if self._writer is None:
                     h, w = frame_bgr.shape[:2]
                     self._local_path = _RECORDING_DIR / f"{self.session_uid}_detection.mp4"
-                    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+                    fourcc = cv2.VideoWriter.fourcc(*"mp4v")
                     fps = get_settings().live_feed_recording_fps
                     self._writer = cv2.VideoWriter(str(self._local_path), fourcc, fps, (w, h))
                     logger.info("Started live recording for feed %s at %s", self.feed_id, self._local_path)

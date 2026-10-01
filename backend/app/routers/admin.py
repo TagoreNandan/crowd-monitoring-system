@@ -75,12 +75,13 @@ def update_user(
     if req.is_active is not None:
         target_user.is_active = req.is_active
     if req.role is not None:
-        if req.role not in ("admin", "user"):
+        normalized_role = "analyst" if req.role == "user" else req.role
+        if normalized_role not in ("admin", "analyst"):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Role must be either 'admin' or 'user'",
+                detail="Role must be either 'admin' or 'analyst'",
             )
-        target_user.role = req.role
+        target_user.role = normalized_role
     if req.full_name is not None:
         target_user.full_name = req.full_name
 
