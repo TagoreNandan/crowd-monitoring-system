@@ -17,7 +17,11 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from crowd_monitoring.system_status import GLOBAL_STATUS
 
+from ..auth.security import decode_access_token
+from ..db.models import User
+from ..db.session import SessionLocal
 from ..schemas.ws import ConnectionAckData, JobStatusData, SystemStatusData, WSEnvelope, WSEventType
+from ..settings import get_settings
 from .manager import ConnectionManager
 
 logger = logging.getLogger(__name__)
@@ -25,6 +29,30 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 HEARTBEAT_INTERVAL_S = 20.0
+
+
+def _authenticate_ws(websocket: WebSocket) -> Optional[User]:
+    token = websocket.query_params.get("token")
+    if not token:
+        auth_header = websocket.headers.get("authorization")
+        if auth_header and auth_header.lower().startswith("bearer "):
+            token = auth_header[7:].strip()
+    if not token:
+        return None
+    payload = decode_access_token(token)
+    if not payload:
+        return None
+    username = payload.get("sub")
+    if not username:
+        return None
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter(User.username == username).first()
+        if user and user.is_active:
+            return user
+        return None
+    finally:
+        db.close()
 
 
 def _system_status_envelope() -> WSEnvelope:
@@ -97,6 +125,12 @@ async def _serve(
 
 @router.websocket("/ws/system")
 async def ws_system(websocket: WebSocket) -> None:
+    settings = get_settings()
+    user = _authenticate_ws(websocket)
+    if settings.environment.lower() in ("production", "prod") and user is None:
+        await websocket.close(code=4403, reason="unauthorized")
+        return
+
     manager: ConnectionManager = websocket.app.state.app_state.connection_manager
     channel = manager.system_channel()
     ack = WSEnvelope(type=WSEventType.CONNECTION_ACK, data=ConnectionAckData(channel=channel).model_dump())
@@ -108,6 +142,12 @@ async def ws_job(websocket: WebSocket, job_id: str) -> None:
     app_state = websocket.app.state.app_state
     manager: ConnectionManager = app_state.connection_manager
     job_store = app_state.job_store
+    settings = get_settings()
+
+    user = _authenticate_ws(websocket)
+    if settings.environment.lower() in ("production", "prod") and user is None:
+        await websocket.close(code=4403, reason="unauthorized")
+        return
 
     record = job_store.get(job_id)
     if record is None:
@@ -115,6 +155,10 @@ async def ws_job(websocket: WebSocket, job_id: str) -> None:
         # close code rather than accepting a socket for a job that doesn't
         # exist.
         await websocket.close(code=4404, reason="job not found")
+        return
+
+    if user is not None and record.user_id is not None and user.role != "admin" and user.id != record.user_id:
+        await websocket.close(code=4403, reason="forbidden")
         return
 
     channel = manager.job_channel(job_id)
@@ -131,6 +175,12 @@ async def ws_job(websocket: WebSocket, job_id: str) -> None:
 async def ws_feed(websocket: WebSocket, feed_id: str) -> None:
     app_state = websocket.app.state.app_state
     manager: ConnectionManager = app_state.connection_manager
+    settings = get_settings()
+
+    user = _authenticate_ws(websocket)
+    if settings.environment.lower() in ("production", "prod") and user is None:
+        await websocket.close(code=4403, reason="unauthorized")
+        return
 
     channel = manager.feed_channel(feed_id)
     ack = WSEnvelope(type=WSEventType.CONNECTION_ACK, job_id=feed_id, data=ConnectionAckData(channel=channel).model_dump())

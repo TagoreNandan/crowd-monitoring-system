@@ -36,7 +36,7 @@ export function removeStoredToken(): void {
   localStorage.removeItem(TOKEN_KEY);
 }
 
-export function getAuthHeaders(token?: string): Record<string, string> {
+export function getAuthHeaders(token?: string | null): Record<string, string> {
   const authToken = token || getStoredToken();
   return authToken ? { Authorization: `Bearer ${authToken}` } : {};
 }
@@ -286,7 +286,10 @@ export function connectWebSocket(
 ): WebSocket {
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   const host = window.location.host;
-  const wsUrl = `${protocol}//${host}${path}`;
+  const token = getStoredToken();
+  const sep = path.includes('?') ? '&' : '?';
+  const query = token ? `${sep}token=${encodeURIComponent(token)}` : '';
+  const wsUrl = `${protocol}//${host}${path}${query}`;
 
   const ws = new WebSocket(wsUrl);
 

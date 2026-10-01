@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import threading
 import time
 import uuid
 from pathlib import Path
@@ -63,11 +64,22 @@ router = APIRouter(prefix="/api/feeds", tags=["feeds"])
 # Global in-memory storage for active live feed sessions and their per-feed
 # peak-count bookkeeping (peak is a running max over the feed's lifetime --
 # not part of RealtimeFeedSession itself, which knows nothing about
-# analytics semantics).
+# analytics semantics). Guarded by _feeds_lock for thread-safety.
+_feeds_lock = threading.Lock()
 _active_feeds: dict[str, RealtimeFeedSession] = {}
 _feed_peaks: dict[str, float] = {}
 _feed_latest_frames: dict[str, dict[str, str]] = {}
 _feed_recorders: dict[str, LiveFeedRecorder] = {}
+
+
+def get_active_feeds_snapshot() -> tuple[dict[str, RealtimeFeedSession], dict[str, float], dict[str, dict[str, str]]]:
+    """Return a thread-safe snapshot of all active feeds and their state."""
+    with _feeds_lock:
+        return (
+            dict(_active_feeds),
+            dict(_feed_peaks),
+            {k: dict(v) for k, v in _feed_latest_frames.items()},
+        )
 
 
 class CreateFeedRequest(BaseModel):
@@ -120,16 +132,22 @@ def _build_feed_response(session: RealtimeFeedSession, source_type: str) -> Feed
     latest_metrics = None
     fast = session.latest_fast_result
     density = session.latest_density_result
+    with _feeds_lock:
+        peak_count = round(_feed_peaks.get(session.session_id, 0.0), 2)
+        is_recording = session.session_id in _feed_recorders
     if fast is not None or density is not None:
+        active_frame = fast.frame if fast is not None else (density.frame if density is not None else None)
+        frame_number = active_frame.frame_number if active_frame is not None else 0
+        timestamp_s = round(active_frame.timestamp_s, 2) if active_frame is not None else 0.0
         payload: dict[str, Any] = {
-            "frame_number": fast.frame.frame_number if fast else (density.frame.frame_number if density else 0),
-            "timestamp_s": round((fast.frame.timestamp_s if fast else density.frame.timestamp_s), 2) if (fast or density) else 0.0,
+            "frame_number": frame_number,
+            "timestamp_s": timestamp_s,
             "estimated_count": round(float(density.result.inference.count), 2) if density else 0.0,
-            "peak_count": round(_feed_peaks.get(session.session_id, 0.0), 2),
+            "peak_count": peak_count,
             "density": 0.0,
-            "cluster_count": int(density.result.clusters.n_clusters) if density else 0,
-            "largest_cluster": int(density.result.clusters.largest_cluster_size) if density else 0,
-            "risk_status": str(density.result.risk.status) if density else "SAFE",
+            "cluster_count": density.result.clusters.n_clusters if density else 0,
+            "largest_cluster": density.result.clusters.largest_cluster_size if density else 0,
+            "risk_status": density.result.risk.status if density else "SAFE",
             "risk_score": round(float(density.result.risk.score), 2) if density else 0.0,
             "latency_ms": round(fast.latency_ms, 2) if fast else 0.0,
             "fps": round(1000.0 / fast.latency_ms, 2) if fast and fast.latency_ms > 0 else None,
@@ -154,7 +172,7 @@ def _build_feed_response(session: RealtimeFeedSession, source_type: str) -> Feed
         frames_produced=session.frames_produced,
         error_count=session.error_count,
         started_at=session.started_at,
-        is_recording=session.session_id in _feed_recorders,
+        is_recording=is_recording,
         latest_metrics=latest_metrics,
     )
 
@@ -171,13 +189,15 @@ def _resolve_youtube_stream_url(url: str) -> str:
         }
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=False)
-            if info:
-                if "url" in info:
-                    return info["url"]
-                elif "entries" in info and len(info["entries"]) > 0:
-                    first = info["entries"][0]
-                    if isinstance(first, dict) and "url" in first:
-                        return first["url"]
+            if info and isinstance(info, dict):
+                stream_url = info.get("url")
+                if stream_url:
+                    return stream_url
+                entries = info.get("entries")
+                if entries:
+                    for entry in entries:
+                        if isinstance(entry, dict) and entry.get("url"):
+                            return str(entry["url"])
     except HTTPException:
         raise
     except Exception as e:
@@ -212,17 +232,25 @@ def _resolve_source(source_type: str, source_uri: Optional[str]) -> FrameSource:
         return RTSPSource(url=source_uri)
 
     if source_type in ("video", "sample"):
+        import tempfile
         sample_path = Path(source_uri) if source_uri else Path("examples/sample_crowd.mp4")
         if not sample_path.exists():
             default_sample = Path("examples/sample_crowd.mp4")
             if default_sample.exists():
                 sample_path = default_sample
             else:
-                candidates = list(Path(".").glob("**/*.mp4"))
+                candidates = list(Path("examples").glob("*.mp4"))
                 if candidates:
                     sample_path = candidates[0]
                 else:
                     raise HTTPException(status_code=404, detail=f"Sample video path not found: {sample_path}")
+
+        resolved_path = sample_path.resolve()
+        project_root = Path(".").resolve()
+        temp_dir = Path(tempfile.gettempdir()).resolve()
+        is_safe = str(resolved_path).startswith(str(project_root)) or str(resolved_path).startswith(str(temp_dir))
+        if not is_safe:
+            raise HTTPException(status_code=403, detail="Access to the specified video file path is forbidden.")
         return FileVideoSource(sample_path)
     raise HTTPException(status_code=400, detail=f"Unsupported source_type '{source_type}'")
 
@@ -237,13 +265,13 @@ def _scale_tracked_persons(
     scaled: List[TrackedPerson] = []
     for p in persons:
         track_id = int(getattr(p, "track_id", 0) or 0)
-        x1 = int(round(p.x1 * sx))
-        y1 = int(round(p.y1 * sy))
-        x2 = int(round(p.x2 * sx))
-        y2 = int(round(p.y2 * sy))
+        x1 = round(p.x1 * sx)
+        y1 = round(p.y1 * sy)
+        x2 = round(p.x2 * sx)
+        y2 = round(p.y2 * sy)
         confidence = float(p.confidence)
         center_xy = ((x1 + x2) // 2, (y1 + y2) // 2)
-        history = [(int(round(hx * sx)), int(round(hy * sy))) for (hx, hy) in getattr(p, "history", [])]
+        history = [(round(hx * sx), round(hy * sy)) for (hx, hy) in getattr(p, "history", [])]
         scaled.append(
             TrackedPerson(
                 track_id=track_id,
@@ -268,10 +296,11 @@ async def create_feed(
     current_user: User = Depends(require_admin),
 ) -> FeedSessionResponse:
     feed_id = f"feed_{uuid.uuid4().hex[:8]}"
-    source = _resolve_source(req.source_type, req.source_uri)
+    source = await asyncio.to_thread(_resolve_source, req.source_type, req.source_uri)
 
     settings = get_settings()
-    _feed_peaks[feed_id] = 0.0
+    with _feeds_lock:
+        _feed_peaks[feed_id] = 0.0
 
     # `on_fast_result`/`on_density_result` run on RealtimeFeedSession's own
     # background threads, never on the asyncio event loop -- capture the
@@ -304,6 +333,10 @@ async def create_feed(
                 disp_frame = frame_bgr
                 disp_detections = fast.detections
 
+            with _feeds_lock:
+                current_peak = _feed_peaks.get(feed_id, 0.0)
+                recorder = _feed_recorders.get(feed_id)
+
             annotated = render_video_overlay(
                 disp_frame,
                 disp_detections,
@@ -313,7 +346,7 @@ async def create_feed(
                 total_duration_s=None,
                 visible_count=fast.visible_count,
                 estimated_count=_latest_density_count(feed_id),
-                peak_count=_feed_peaks.get(feed_id, 0.0),
+                peak_count=current_peak,
                 fps=round(1000.0 / fast.latency_ms, 2) if fast.latency_ms > 0 else None,
                 latency_ms=fast.latency_ms,
                 density=_latest_density_value(feed_id),
@@ -322,7 +355,6 @@ async def create_feed(
                 risk_status=_latest_density_risk_status(feed_id),
                 risk_score=_latest_density_risk_score(feed_id),
             )
-            recorder = _feed_recorders.get(feed_id)
             if recorder is not None:
                 recorder.write_detection_frame(annotated)
             frame_jpeg = encode_jpeg_data_url(
@@ -336,7 +368,8 @@ async def create_feed(
                 "fps": round(1000.0 / fast.latency_ms, 2) if fast.latency_ms > 0 else None,
                 "frame_jpeg": frame_jpeg,
             }
-            _feed_latest_frames.setdefault(feed_id, {})["frame_jpeg"] = frame_jpeg
+            with _feeds_lock:
+                _feed_latest_frames.setdefault(feed_id, {})["frame_jpeg"] = frame_jpeg
             broadcast(WSEnvelope(type=WSEventType.FEED_PROGRESS, job_id=feed_id, data=data))
         except Exception:
             logger.exception("Error building/broadcasting fast-path frame for feed %s", feed_id)
@@ -345,15 +378,17 @@ async def create_feed(
         try:
             r = density.result
             count = round(float(r.inference.count), 2)
-            peak = max(_feed_peaks.get(feed_id, 0.0), count)
-            _feed_peaks[feed_id] = peak
+            with _feeds_lock:
+                peak = max(_feed_peaks.get(feed_id, 0.0), count)
+                _feed_peaks[feed_id] = peak
+                active_session = _active_feeds.get(feed_id)
+                recorder = _feed_recorders.get(feed_id)
             dcomp = float(r.risk.components.get("relative_density_per_100px2", 0.0) or 0.0)
 
             frame_bgr = density.frame.frame_bgr
             fh, fw = frame_bgr.shape[:2]
             max_side = settings.feed_frame_max_side
             density_map = r.inference.density_map
-            active_session = _active_feeds.get(feed_id)
             fast_boxes = active_session.latest_fast_result.detections if (active_session and active_session.latest_fast_result) else []
 
             if max_side and max(fh, fw) > max_side:
@@ -369,7 +404,6 @@ async def create_feed(
             combined_frame = draw_density_heatmap_overlay(disp_frame, density_map, alpha=0.45)
             combined_frame = draw_person_boxes(combined_frame, disp_boxes)
 
-            recorder = _feed_recorders.get(feed_id)
             if recorder is not None:
                 recorder.save_snapshot(heatmap_frame, "heatmap")
                 recorder.save_snapshot(combined_frame, "combined")
@@ -385,16 +419,18 @@ async def create_feed(
                 "estimated_count": count,
                 "peak_count": round(peak, 2),
                 "density": round(dcomp, 3),
-                "cluster_count": int(r.clusters.n_clusters),
-                "largest_cluster": int(r.clusters.largest_cluster_size),
-                "risk_status": str(r.risk.status),
+                "cluster_count": r.clusters.n_clusters,
+                "largest_cluster": r.clusters.largest_cluster_size,
+                "risk_status": r.risk.status,
                 "risk_score": round(float(r.risk.score), 2),
                 "density_latency_ms": round(density.latency_ms, 2),
                 "heatmap_jpeg": heatmap_jpeg,
                 "combined_jpeg": combined_jpeg,
             }
-            _feed_latest_frames.setdefault(feed_id, {})["heatmap_jpeg"] = heatmap_jpeg
-            _feed_latest_frames.setdefault(feed_id, {})["combined_jpeg"] = combined_jpeg
+            with _feeds_lock:
+                _feed_latest_frames.setdefault(feed_id, {})["heatmap_jpeg"] = heatmap_jpeg
+                _feed_latest_frames.setdefault(feed_id, {})["combined_jpeg"] = combined_jpeg
+                saved_frame_jpeg = _feed_latest_frames.get(feed_id, {}).get("frame_jpeg")
             broadcast(WSEnvelope(type=WSEventType.FEED_PROGRESS, job_id=feed_id, data=data))
 
             # Broadcast to system channel for Overview dashboard real-time synchronization
@@ -407,13 +443,13 @@ async def create_feed(
                 "visible_count": fast_res.visible_count if fast_res else int(count),
                 "peak_count": round(peak, 2),
                 "density": round(dcomp, 3),
-                "cluster_count": int(r.clusters.n_clusters),
-                "largest_cluster": int(r.clusters.largest_cluster_size),
-                "risk_status": str(r.risk.status),
+                "cluster_count": r.clusters.n_clusters,
+                "largest_cluster": r.clusters.largest_cluster_size,
+                "risk_status": r.risk.status,
                 "risk_score": round(float(r.risk.score), 2),
                 "latency_ms": round(fast_res.latency_ms, 2) if fast_res else 0.0,
                 "fps": round(1000.0 / fast_res.latency_ms, 2) if fast_res and fast_res.latency_ms > 0 else 30.0,
-                "frame_jpeg": _feed_latest_frames.get(feed_id, {}).get("frame_jpeg"),
+                "frame_jpeg": saved_frame_jpeg,
             }
             broadcast_system(WSEnvelope(type=WSEventType.SYSTEM_METRICS, job_id=feed_id, data=system_data))
         except Exception:
@@ -455,16 +491,19 @@ async def create_feed(
     try:
         session.start()
     except Exception as exc:
-        _feed_peaks.pop(feed_id, None)
+        with _feeds_lock:
+            _feed_peaks.pop(feed_id, None)
         raise HTTPException(status_code=500, detail=f"Failed to start feed: {exc}") from exc
 
-    _active_feeds[feed_id] = session
+    with _feeds_lock:
+        _active_feeds[feed_id] = session
     # Recording is now manual/on-demand via /api/feeds/{feed_id}/record/start
     return _build_feed_response(session, req.source_type)
 
 
 def _latest_density(feed_id: str) -> Optional[DensityResult]:
-    session = _active_feeds.get(feed_id)
+    with _feeds_lock:
+        session = _active_feeds.get(feed_id)
     return session.latest_density_result if session else None
 
 
@@ -482,17 +521,17 @@ def _latest_density_value(feed_id: str) -> float:
 
 def _latest_density_clusters(feed_id: str) -> int:
     d = _latest_density(feed_id)
-    return int(d.result.clusters.n_clusters) if d else 0
+    return d.result.clusters.n_clusters if d else 0
 
 
 def _latest_density_largest_cluster(feed_id: str) -> int:
     d = _latest_density(feed_id)
-    return int(d.result.clusters.largest_cluster_size) if d else 0
+    return d.result.clusters.largest_cluster_size if d else 0
 
 
 def _latest_density_risk_status(feed_id: str) -> str:
     d = _latest_density(feed_id)
-    return str(d.result.risk.status) if d else "SAFE"
+    return d.result.risk.status if d else "SAFE"
 
 
 def _latest_density_risk_score(feed_id: str) -> float:
@@ -525,7 +564,8 @@ async def create_upload_feed(
         loop=loop,
     )
     res = await create_feed(req, runtime, connection_manager, person_detector)
-    session = _active_feeds.get(res.feed_id)
+    with _feeds_lock:
+        session = _active_feeds.get(res.feed_id)
     if session is not None:
         setattr(session, "_temp_upload_path", tmp_path)
     return res
@@ -535,7 +575,9 @@ async def create_upload_feed(
 async def list_feeds(
     current_user: User = Depends(get_current_user),
 ) -> List[FeedSessionResponse]:
-    return [_build_feed_response(sess, "feed") for sess in list(_active_feeds.values())]
+    with _feeds_lock:
+        sessions = list(_active_feeds.values())
+    return [_build_feed_response(sess, "feed") for sess in sessions]
 
 
 @router.get("/{feed_id}", response_model=FeedSessionResponse)
@@ -543,7 +585,8 @@ async def get_feed(
     feed_id: str,
     current_user: User = Depends(get_current_user),
 ) -> FeedSessionResponse:
-    sess = _active_feeds.get(feed_id)
+    with _feeds_lock:
+        sess = _active_feeds.get(feed_id)
     if sess is None:
         raise HTTPException(status_code=404, detail=f"Feed '{feed_id}' not found")
     return _build_feed_response(sess, "feed")
@@ -555,7 +598,8 @@ async def stop_feed(
     connection_manager: ConnectionManager = Depends(get_connection_manager),
     current_user: User = Depends(require_admin),
 ) -> FeedSessionResponse:
-    sess = _active_feeds.get(feed_id)
+    with _feeds_lock:
+        sess = _active_feeds.get(feed_id)
     if sess is None:
         raise HTTPException(status_code=404, detail=f"Feed '{feed_id}' not found")
 
@@ -566,16 +610,17 @@ async def stop_feed(
 async def _finalize_feed_session(
     feed_id: str, connection_manager: ConnectionManager, reason: str = "stopped"
 ) -> None:
-    sess = _active_feeds.pop(feed_id, None)
+    with _feeds_lock:
+        sess = _active_feeds.pop(feed_id, None)
+        _feed_peaks.pop(feed_id, None)
+        _feed_latest_frames.pop(feed_id, None)
+        recorder = _feed_recorders.pop(feed_id, None)
     if sess is None:
         return
     try:
-        sess.stop()
+        await asyncio.to_thread(sess.stop)
     except Exception:
         logger.exception("Error stopping session for feed %s", feed_id)
-    _feed_peaks.pop(feed_id, None)
-    _feed_latest_frames.pop(feed_id, None)
-    recorder = _feed_recorders.pop(feed_id, None)
     if recorder is not None:
         await asyncio.to_thread(recorder.finalize)
     tmp_path = getattr(sess, "_temp_upload_path", None)
@@ -610,23 +655,24 @@ async def start_feed_recording(
     current_user: User = Depends(require_admin),
 ):
     """Start recording detection-view video and snapshots for an active feed session."""
-    session = _active_feeds.get(feed_id)
-    if session is None or not session.is_running:
-        raise HTTPException(status_code=404, detail=f"Live feed '{feed_id}' is not active or running")
+    with _feeds_lock:
+        session = _active_feeds.get(feed_id)
+        if session is None or not session.is_running:
+            raise HTTPException(status_code=404, detail=f"Live feed '{feed_id}' is not active or running")
 
-    if feed_id in _feed_recorders:
-        rec = _feed_recorders[feed_id]
-        return {
-            "status": "already_recording",
-            "feed_id": feed_id,
-            "recording": True,
-            "session_uid": rec.session_uid,
-            "started_at": rec._start_wall,
-            "duration_s": round(time.time() - rec._start_wall, 1),
-        }
+        if feed_id in _feed_recorders:
+            rec = _feed_recorders[feed_id]
+            return {
+                "status": "already_recording",
+                "feed_id": feed_id,
+                "recording": True,
+                "session_uid": rec.session_uid,
+                "started_at": rec._start_wall,
+                "duration_s": round(time.time() - rec._start_wall, 1),
+            }
 
-    recorder = LiveFeedRecorder(feed_id)
-    _feed_recorders[feed_id] = recorder
+        recorder = LiveFeedRecorder(feed_id)
+        _feed_recorders[feed_id] = recorder
     logger.info("Manual recording started for feed %s (session %s)", feed_id, recorder.session_uid)
 
     await connection_manager.broadcast(
@@ -660,7 +706,8 @@ async def stop_feed_recording(
     current_user: User = Depends(require_admin),
 ):
     """Stop active recording for a feed session, finalize output, and upload to S3 if configured."""
-    recorder = _feed_recorders.pop(feed_id, None)
+    with _feeds_lock:
+        recorder = _feed_recorders.pop(feed_id, None)
     if recorder is None:
         raise HTTPException(status_code=400, detail=f"No active recording for feed '{feed_id}'")
 
@@ -696,10 +743,11 @@ async def get_feed_recording_status(
     current_user: User = Depends(get_current_user),
 ):
     """Check whether a feed is currently being recorded."""
-    session = _active_feeds.get(feed_id)
-    if session is None:
-        raise HTTPException(status_code=404, detail=f"Feed '{feed_id}' not found")
-    recorder = _feed_recorders.get(feed_id)
+    with _feeds_lock:
+        session = _active_feeds.get(feed_id)
+        if session is None:
+            raise HTTPException(status_code=404, detail=f"Feed '{feed_id}' not found")
+        recorder = _feed_recorders.get(feed_id)
     if recorder is None:
         return {
             "feed_id": feed_id,
@@ -723,6 +771,10 @@ async def get_recording_video(
     current_user: User = Depends(get_current_user),
 ):
     """Serve or redirect to a finished live recording MP4."""
+    import re
+    if not re.match(r"^[a-zA-Z0-9_\-]+$", session_uid):
+        raise HTTPException(status_code=400, detail="Invalid session UID format")
+
     key = f"live_feeds/{session_uid}/detection.mp4"
     if storage.is_s3_enabled():
         return RedirectResponse(
@@ -734,7 +786,10 @@ async def get_recording_video(
                 "Expires": "0",
             },
         )
-    local_path = Path("data/live_recordings") / f"{session_uid}_detection.mp4"
+    base_dir = Path("data/live_recordings").resolve()
+    local_path = (base_dir / f"{session_uid}_detection.mp4").resolve()
+    if not str(local_path).startswith(str(base_dir)):
+        raise HTTPException(status_code=403, detail="Access denied")
     if local_path.exists():
         return FileResponse(path=local_path, media_type="video/mp4", filename=f"{session_uid}.mp4")
     raise HTTPException(status_code=404, detail=f"Recording '{session_uid}' not found")

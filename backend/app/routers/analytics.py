@@ -49,10 +49,10 @@ RISK_PRIORITY = {
 
 
 def _get_active_feed_sessions():
-    """Retrieve active feed sessions dictionary from feeds router."""
+    """Retrieve active feed sessions dictionary safely via snapshot."""
     try:
-        from .feeds import _active_feeds, _feed_peaks, _feed_latest_frames
-        return _active_feeds, _feed_peaks, _feed_latest_frames
+        from .feeds import get_active_feeds_snapshot
+        return get_active_feeds_snapshot()
     except Exception as exc:
         logger.warning(f"Unable to read active feeds store: {exc}")
         return {}, {}, {}

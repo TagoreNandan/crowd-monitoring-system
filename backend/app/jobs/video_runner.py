@@ -329,7 +329,7 @@ async def run_video_job(
             )
             if annotated_writer is None:
                 h, w = annotated.shape[:2]
-                fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+                fourcc = cv2.VideoWriter.fourcc(*"mp4v")
                 annotated_writer = await runtime.run_sync(
                     cv2.VideoWriter, str(annotated_path), fourcc, output_fps, (w, h)
                 )
