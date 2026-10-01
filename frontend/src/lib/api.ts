@@ -22,6 +22,24 @@ import type {
 import type { ImageUrlInfo } from '../types/api';
 
 const API_BASE = '/api';
+const TOKEN_KEY = 'cms_auth_token';
+
+export function getStoredToken(): string | null {
+  return localStorage.getItem(TOKEN_KEY);
+}
+
+export function setStoredToken(token: string): void {
+  localStorage.setItem(TOKEN_KEY, token);
+}
+
+export function removeStoredToken(): void {
+  localStorage.removeItem(TOKEN_KEY);
+}
+
+export function getAuthHeaders(token?: string): Record<string, string> {
+  const authToken = token || getStoredToken();
+  return authToken ? { Authorization: `Bearer ${authToken}` } : {};
+}
 
 export async function getHealth(): Promise<SystemHealth> {
   const res = await fetch(`${API_BASE}/health`);
@@ -41,12 +59,13 @@ export async function getConfig(): Promise<SystemConfig> {
   return res.json();
 }
 
-export async function analyzeImage(file: File): Promise<JobRecordResponse> {
+export async function analyzeImage(file: File, token?: string): Promise<JobRecordResponse> {
   const formData = new FormData();
   formData.append('image', file);
 
   const res = await fetch(`${API_BASE}/jobs/image`, {
     method: 'POST',
+    headers: { ...getAuthHeaders(token) },
     body: formData,
   });
 
@@ -58,12 +77,13 @@ export async function analyzeImage(file: File): Promise<JobRecordResponse> {
   return res.json();
 }
 
-export async function submitVideoJob(file: File): Promise<JobRecordResponse> {
+export async function submitVideoJob(file: File, token?: string): Promise<JobRecordResponse> {
   const formData = new FormData();
   formData.append('video', file);
 
   const res = await fetch(`${API_BASE}/jobs/video`, {
     method: 'POST',
+    headers: { ...getAuthHeaders(token) },
     body: formData,
   });
 
@@ -75,8 +95,10 @@ export async function submitVideoJob(file: File): Promise<JobRecordResponse> {
   return res.json();
 }
 
-export async function getJob(jobId: string): Promise<JobRecordResponse> {
-  const res = await fetch(`${API_BASE}/jobs/${jobId}`);
+export async function getJob(jobId: string, token?: string): Promise<JobRecordResponse> {
+  const res = await fetch(`${API_BASE}/jobs/${jobId}`, {
+    headers: { ...getAuthHeaders(token) },
+  });
   if (!res.ok) throw new Error(`Failed to fetch job ${jobId}`);
   return res.json();
 }
@@ -87,8 +109,10 @@ export type VideoView = 'detection' | 'heatmap' | 'combined';
 // (person boxes + stats panel), `heatmap` (real DM-Count density overlay,
 // no boxes), or `combined` (both together). Only valid once the job has
 // completed -- callers should check `job.status === 'completed'` first.
-export function getJobVideoUrl(jobId: string, view: VideoView = 'detection'): string {
-  return `${API_BASE}/jobs/${jobId}/video/${view}`;
+export function getJobVideoUrl(jobId: string, view: VideoView = 'detection', token?: string): string {
+  const authToken = token || getStoredToken();
+  const base = `${API_BASE}/jobs/${jobId}/video/${view}`;
+  return authToken ? `${base}?token=${encodeURIComponent(authToken)}` : base;
 }
 
 export interface VideoUrlInfo {
@@ -100,34 +124,62 @@ export interface VideoUrlInfo {
   storage_key?: string;
 }
 
-export async function getJobVideoUrlInfo(jobId: string, view: VideoView = 'detection'): Promise<VideoUrlInfo> {
-  const res = await fetch(`${API_BASE}/jobs/${jobId}/video/${view}/url`);
+export async function getJobVideoUrlInfo(jobId: string, view: VideoView = 'detection', token?: string): Promise<VideoUrlInfo> {
+  const authToken = token || getStoredToken();
+  const res = await fetch(`${API_BASE}/jobs/${jobId}/video/${view}/url`, {
+    headers: { ...getAuthHeaders(authToken) },
+  });
   if (!res.ok) {
     throw new Error(`Failed to get video URL info (${res.status})`);
   }
-  return res.json();
+  const data: VideoUrlInfo = await res.json();
+  if (data.mode === 'local' && authToken && data.url) {
+    const sep = data.url.includes('?') ? '&' : '?';
+    data.url = `${data.url}${sep}token=${encodeURIComponent(authToken)}`;
+  }
+  return data;
 }
 
-export function getJobImageUrl(jobId: string, view: string = 'detection'): string {
-  return `${API_BASE}/jobs/${jobId}/image/${view}`;
+export function getJobImageUrl(jobId: string, view: string = 'detection', token?: string): string {
+  const authToken = token || getStoredToken();
+  const base = `${API_BASE}/jobs/${jobId}/image/${view}`;
+  return authToken ? `${base}?token=${encodeURIComponent(authToken)}` : base;
 }
 
-export async function getJobImageUrlInfo(jobId: string, view: string = 'detection'): Promise<ImageUrlInfo> {
-  const res = await fetch(`${API_BASE}/jobs/jobs/${jobId}/image/${view}/url`);
+export async function getJobImageUrlInfo(jobId: string, view: string = 'detection', token?: string): Promise<ImageUrlInfo> {
+  const authToken = token || getStoredToken();
+  const res = await fetch(`${API_BASE}/jobs/jobs/${jobId}/image/${view}/url`, {
+    headers: { ...getAuthHeaders(authToken) },
+  });
   if (!res.ok) {
     throw new Error(`Failed to get image URL info (${res.status})`);
   }
-  return res.json();
+  const data: ImageUrlInfo = await res.json();
+  if (data.mode === 'local' && authToken && data.url) {
+    const sep = data.url.includes('?') ? '&' : '?';
+    data.url = `${data.url}${sep}token=${encodeURIComponent(authToken)}`;
+  }
+  return data;
+}
+
+export function getRecordingVideoUrl(sessionUid: string, token?: string): string {
+  const authToken = token || getStoredToken();
+  const base = `${API_BASE}/feeds/recordings/${sessionUid}/video`;
+  return authToken ? `${base}?token=${encodeURIComponent(authToken)}` : base;
 }
 
 export async function createFeed(
   sourceType: string = 'video',
   sourceUri: string = 'dashboard/static/uploads/077cc45b94_14968235_2160_3840_60fps.mp4',
-  loop: boolean = true
+  loop: boolean = true,
+  token?: string
 ): Promise<FeedResponse> {
   const res = await fetch(`${API_BASE}/feeds`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      ...getAuthHeaders(token),
+    },
     body: JSON.stringify({
       source_type: sourceType,
       source_uri: sourceUri,
@@ -145,7 +197,8 @@ export async function createFeed(
 
 export async function uploadFeedVideo(
   file: File,
-  loop: boolean = true
+  loop: boolean = true,
+  token?: string
 ): Promise<FeedResponse> {
   const formData = new FormData();
   formData.append('video', file);
@@ -153,6 +206,7 @@ export async function uploadFeedVideo(
 
   const res = await fetch(`${API_BASE}/feeds/upload`, {
     method: 'POST',
+    headers: { ...getAuthHeaders(token) },
     body: formData,
   });
 
@@ -164,30 +218,36 @@ export async function uploadFeedVideo(
   return res.json();
 }
 
-export async function listFeeds(): Promise<FeedResponse[]> {
-  const res = await fetch(`${API_BASE}/feeds`);
+export async function listFeeds(token?: string): Promise<FeedResponse[]> {
+  const res = await fetch(`${API_BASE}/feeds`, {
+    headers: { ...getAuthHeaders(token) },
+  });
   if (!res.ok) throw new Error('Failed to fetch feeds');
   return res.json();
 }
 
-export async function getFeed(feedId: string): Promise<FeedResponse> {
-  const res = await fetch(`${API_BASE}/feeds/${feedId}`);
+export async function getFeed(feedId: string, token?: string): Promise<FeedResponse> {
+  const res = await fetch(`${API_BASE}/feeds/${feedId}`, {
+    headers: { ...getAuthHeaders(token) },
+  });
   if (!res.ok) throw new Error(`Failed to fetch feed ${feedId}`);
   return res.json();
 }
 
-export async function stopFeed(feedId: string): Promise<FeedResponse> {
+export async function stopFeed(feedId: string, token?: string): Promise<FeedResponse> {
   const res = await fetch(`${API_BASE}/feeds/${feedId}/stop`, {
     method: 'POST',
+    headers: { ...getAuthHeaders(token) },
   });
 
   if (!res.ok) throw new Error(`Failed to stop feed ${feedId}`);
   return res.json();
 }
 
-export async function startFeedRecording(feedId: string): Promise<{ status: string; recording: boolean; session_uid: string; started_at: number; message: string }> {
+export async function startFeedRecording(feedId: string, token?: string): Promise<{ status: string; recording: boolean; session_uid: string; started_at: number; message: string }> {
   const res = await fetch(`${API_BASE}/feeds/${feedId}/record/start`, {
     method: 'POST',
+    headers: { ...getAuthHeaders(token) },
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
@@ -196,9 +256,10 @@ export async function startFeedRecording(feedId: string): Promise<{ status: stri
   return res.json();
 }
 
-export async function stopFeedRecording(feedId: string): Promise<{ status: string; recording: boolean; summary: RecordingSummary; message: string }> {
+export async function stopFeedRecording(feedId: string, token?: string): Promise<{ status: string; recording: boolean; summary: RecordingSummary; message: string }> {
   const res = await fetch(`${API_BASE}/feeds/${feedId}/record/stop`, {
     method: 'POST',
+    headers: { ...getAuthHeaders(token) },
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
@@ -207,8 +268,10 @@ export async function stopFeedRecording(feedId: string): Promise<{ status: strin
   return res.json();
 }
 
-export async function getFeedRecordingStatus(feedId: string): Promise<RecordingStatusResponse> {
-  const res = await fetch(`${API_BASE}/feeds/${feedId}/record/status`);
+export async function getFeedRecordingStatus(feedId: string, token?: string): Promise<RecordingStatusResponse> {
+  const res = await fetch(`${API_BASE}/feeds/${feedId}/record/status`, {
+    headers: { ...getAuthHeaders(token) },
+  });
   if (!res.ok) {
     throw new Error(`Failed to get recording status (${res.status})`);
   }
@@ -256,19 +319,7 @@ export function connectWebSocket(
    Authentication & Admin API
    ========================================================================= */
 
-const TOKEN_KEY = 'cms_auth_token';
 
-export function getStoredToken(): string | null {
-  return localStorage.getItem(TOKEN_KEY);
-}
-
-export function setStoredToken(token: string): void {
-  localStorage.setItem(TOKEN_KEY, token);
-}
-
-export function removeStoredToken(): void {
-  localStorage.removeItem(TOKEN_KEY);
-}
 
 export async function loginUser(credentials: { username: string; password: string }): Promise<AuthTokenResponse> {
   const res = await fetch(`${API_BASE}/auth/login`, {

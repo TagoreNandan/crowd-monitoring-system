@@ -30,7 +30,7 @@ from fastapi.responses import FileResponse, RedirectResponse, Response
 
 from crowd_monitoring.detection import PersonDetector
 
-from ..auth.dependencies import get_current_user_optional, log_activity
+from ..auth.dependencies import get_current_user, log_activity
 from ..db.models import User
 from ..db.session import get_db
 from ..dependencies import get_connection_manager, get_job_store, get_person_detector, get_pipeline_runtime
@@ -59,7 +59,7 @@ async def create_image_job(
     job_store: JobStore = Depends(get_job_store),
     person_detector: PersonDetector = Depends(get_person_detector),
     db: Session = Depends(get_db),
-    user: Optional[User] = Depends(get_current_user_optional),
+    user: User = Depends(get_current_user),
 ) -> JobRecordResponse:
     settings = get_settings()
     max_bytes = int(settings.max_image_upload_mb * 1024 * 1024)
@@ -171,7 +171,7 @@ async def create_video_job(
     connection_manager: ConnectionManager = Depends(get_connection_manager),
     person_detector: PersonDetector = Depends(get_person_detector),
     db: Session = Depends(get_db),
-    user: Optional[User] = Depends(get_current_user_optional),
+    user: User = Depends(get_current_user),
 ) -> JobRecordResponse:
     settings = get_settings()
     max_bytes = int(settings.max_video_upload_mb * 1024 * 1024)
@@ -203,7 +203,11 @@ async def create_video_job(
 
 
 @router.get("/{job_id}", response_model=JobRecordResponse)
-async def get_job(job_id: str, job_store: JobStore = Depends(get_job_store)) -> JobRecordResponse:
+async def get_job(
+    job_id: str,
+    job_store: JobStore = Depends(get_job_store),
+    user: User = Depends(get_current_user),
+) -> JobRecordResponse:
     record = job_store.get(job_id)
     if record is None:
         raise JobNotFoundError(job_id)
@@ -211,7 +215,11 @@ async def get_job(job_id: str, job_store: JobStore = Depends(get_job_store)) -> 
 
 
 @router.get("/{job_id}/video")
-async def get_job_video(job_id: str, job_store: JobStore = Depends(get_job_store)) -> Response:
+async def get_job_video(
+    job_id: str,
+    job_store: JobStore = Depends(get_job_store),
+    user: User = Depends(get_current_user),
+) -> Response:
     """Serve the real, annotated (person boxes + live stats overlay) output
     video for a completed video job -- H.264/yuv420p/faststart when ffmpeg
     was available at processing time (see `crowd_monitoring.video_encoding`), so it
@@ -223,7 +231,10 @@ async def get_job_video(job_id: str, job_store: JobStore = Depends(get_job_store
 
 @router.get("/{job_id}/video/{view}")
 async def get_job_video_view(
-    job_id: str, view: str, job_store: JobStore = Depends(get_job_store)
+    job_id: str,
+    view: str,
+    job_store: JobStore = Depends(get_job_store),
+    user: User = Depends(get_current_user),
 ) -> Response:
     """Serve one of the real output video views for a completed video job:
 
@@ -245,6 +256,7 @@ async def get_job_video_url_info(
     job_id: str,
     view: str = "detection",
     job_store: JobStore = Depends(get_job_store),
+    user: User = Depends(get_current_user),
 ):
     """Return direct URL metadata (mode, pre-signed URL or local route, expires_in, expires_at)
     for frontend video player auto-renewal and uninterrupted viewing sessions."""
@@ -320,6 +332,7 @@ async def get_job_image(
     job_id: str,
     view: str = "detection",
     job_store: JobStore = Depends(get_job_store),
+    user: User = Depends(get_current_user),
 ):
     """Serve or redirect to image outputs (detection, density, heatmap, localization, combined).
     If uploaded to S3, returns a 307 redirect to the temporary pre-signed URL."""
@@ -356,6 +369,7 @@ async def get_job_image_url_info(
     job_id: str,
     view: str = "detection",
     job_store: JobStore = Depends(get_job_store),
+    user: User = Depends(get_current_user),
 ):
     """Return direct URL metadata for image outputs (mode, pre-signed URL, expires_in, expires_at)."""
     if view not in ("detection", "density", "heatmap", "localization", "combined"):

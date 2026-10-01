@@ -6,7 +6,7 @@ import logging
 import json
 from typing import Optional
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Query, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
 
@@ -21,12 +21,14 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/token", auto_error=Fals
 
 def get_current_user_optional(
     token: Optional[str] = Depends(oauth2_scheme),
+    token_query: Optional[str] = Query(None, alias="token"),
     db: Session = Depends(get_db),
 ) -> Optional[User]:
     """Returns the authenticated user or None if no token or invalid token provided."""
-    if not token:
+    resolved_token = token or token_query
+    if not resolved_token:
         return None
-    payload = decode_access_token(token)
+    payload = decode_access_token(resolved_token)
     if not payload:
         return None
     username = payload.get("sub")
@@ -38,17 +40,19 @@ def get_current_user_optional(
 
 def get_current_user(
     token: Optional[str] = Depends(oauth2_scheme),
+    token_query: Optional[str] = Query(None, alias="token"),
     db: Session = Depends(get_db),
 ) -> User:
-    """Dependency that requires a valid JWT token."""
+    """Dependency that requires a valid JWT token from Authorization header or ?token= query parameter."""
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
         headers={"WWW-Authenticate": "Bearer"},
     )
-    if not token:
+    resolved_token = token or token_query
+    if not resolved_token:
         raise credentials_exception
-    payload = decode_access_token(token)
+    payload = decode_access_token(resolved_token)
     if not payload:
         raise credentials_exception
     username: str = payload.get("sub")

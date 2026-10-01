@@ -45,6 +45,8 @@ from crowd_monitoring.streaming.realtime import DensityResult, FastResult, Realt
 from crowd_monitoring.tracking import PersonTracker, TrackedPerson
 
 from ..dependencies import get_connection_manager, get_person_detector, get_pipeline_runtime
+from ..auth.dependencies import get_current_user, require_admin
+from ..db.models import User
 from .. import storage
 from ..live_recording import LiveFeedRecorder
 from ..pipeline_runtime import PipelineRuntime
@@ -263,6 +265,7 @@ async def create_feed(
     runtime: PipelineRuntime = Depends(get_pipeline_runtime),
     connection_manager: ConnectionManager = Depends(get_connection_manager),
     person_detector: PersonDetector = Depends(get_person_detector),
+    current_user: User = Depends(require_admin),
 ) -> FeedSessionResponse:
     feed_id = f"feed_{uuid.uuid4().hex[:8]}"
     source = _resolve_source(req.source_type, req.source_uri)
@@ -504,6 +507,7 @@ async def create_upload_feed(
     runtime: PipelineRuntime = Depends(get_pipeline_runtime),
     connection_manager: ConnectionManager = Depends(get_connection_manager),
     person_detector: PersonDetector = Depends(get_person_detector),
+    current_user: User = Depends(require_admin),
 ) -> FeedSessionResponse:
     """Start a real-time feed session from an uploaded video file.
 
@@ -528,12 +532,17 @@ async def create_upload_feed(
 
 
 @router.get("", response_model=List[FeedSessionResponse])
-async def list_feeds() -> List[FeedSessionResponse]:
+async def list_feeds(
+    current_user: User = Depends(get_current_user),
+) -> List[FeedSessionResponse]:
     return [_build_feed_response(sess, "feed") for sess in list(_active_feeds.values())]
 
 
 @router.get("/{feed_id}", response_model=FeedSessionResponse)
-async def get_feed(feed_id: str) -> FeedSessionResponse:
+async def get_feed(
+    feed_id: str,
+    current_user: User = Depends(get_current_user),
+) -> FeedSessionResponse:
     sess = _active_feeds.get(feed_id)
     if sess is None:
         raise HTTPException(status_code=404, detail=f"Feed '{feed_id}' not found")
@@ -542,7 +551,9 @@ async def get_feed(feed_id: str) -> FeedSessionResponse:
 
 @router.post("/{feed_id}/stop", response_model=FeedSessionResponse)
 async def stop_feed(
-    feed_id: str, connection_manager: ConnectionManager = Depends(get_connection_manager)
+    feed_id: str,
+    connection_manager: ConnectionManager = Depends(get_connection_manager),
+    current_user: User = Depends(require_admin),
 ) -> FeedSessionResponse:
     sess = _active_feeds.get(feed_id)
     if sess is None:
@@ -596,6 +607,7 @@ async def _finalize_feed_session(
 async def start_feed_recording(
     feed_id: str,
     connection_manager: ConnectionManager = Depends(get_connection_manager),
+    current_user: User = Depends(require_admin),
 ):
     """Start recording detection-view video and snapshots for an active feed session."""
     session = _active_feeds.get(feed_id)
@@ -645,6 +657,7 @@ async def start_feed_recording(
 async def stop_feed_recording(
     feed_id: str,
     connection_manager: ConnectionManager = Depends(get_connection_manager),
+    current_user: User = Depends(require_admin),
 ):
     """Stop active recording for a feed session, finalize output, and upload to S3 if configured."""
     recorder = _feed_recorders.pop(feed_id, None)
@@ -678,7 +691,10 @@ async def stop_feed_recording(
 
 
 @router.get("/{feed_id}/record/status")
-async def get_feed_recording_status(feed_id: str):
+async def get_feed_recording_status(
+    feed_id: str,
+    current_user: User = Depends(get_current_user),
+):
     """Check whether a feed is currently being recorded."""
     session = _active_feeds.get(feed_id)
     if session is None:
@@ -702,7 +718,10 @@ async def get_feed_recording_status(feed_id: str):
 
 
 @router.get("/recordings/{session_uid}/video")
-async def get_recording_video(session_uid: str):
+async def get_recording_video(
+    session_uid: str,
+    current_user: User = Depends(get_current_user),
+):
     """Serve or redirect to a finished live recording MP4."""
     key = f"live_feeds/{session_uid}/detection.mp4"
     if storage.is_s3_enabled():

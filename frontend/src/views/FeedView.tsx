@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Radio, Play, Square, RefreshCw, AlertCircle, Users, Eye, Camera, Circle, Download, CheckCircle2, X } from 'lucide-react';
-import { createFeed, stopFeed, connectWebSocket, uploadFeedVideo, getDevices, listFeeds, startFeedRecording, stopFeedRecording, getFeedRecordingStatus } from '../lib/api';
+import { createFeed, stopFeed, connectWebSocket, uploadFeedVideo, getDevices, listFeeds, startFeedRecording, stopFeedRecording, getFeedRecordingStatus, getStoredToken } from '../lib/api';
 import type { Device, FeedResponse, PartialFeedMetrics, VideoFrameMetrics, WSEnvelope, RecordingSummary } from '../types/api';
 import { Badge } from '../components/ui/Badge';
 import { Button } from '../components/ui/Button';
@@ -472,7 +472,13 @@ export const FeedView: React.FC<FeedViewProps> = ({ initialDevice }) => {
               <div className="flex items-center gap-2">
                 {lastRecording.download_url && (
                   <a
-                    href={lastRecording.download_url}
+                    href={(() => {
+                      const url = lastRecording.download_url;
+                      const token = getStoredToken();
+                      if (!token || url.startsWith('http://') || url.startsWith('https://')) return url;
+                      const sep = url.includes('?') ? '&' : '?';
+                      return `${url}${sep}token=${encodeURIComponent(token)}`;
+                    })()}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="inline-flex items-center gap-1.5 px-3 py-1 bg-zinc-800 hover:bg-zinc-700 text-zinc-100 rounded text-xs font-medium transition-colors border border-zinc-700"

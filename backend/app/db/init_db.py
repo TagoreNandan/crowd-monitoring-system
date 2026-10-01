@@ -72,12 +72,7 @@ def init_db() -> None:
             db.add(log_entry)
             db.commit()
         else:
-            # Reassert password and active admin status
-            admin.hashed_password = hash_password(settings.admin_password)
-            admin.role = "admin"
-            admin.is_active = True
-            db.commit()
-            logger.info(f"Administrator credentials synced: username='{settings.admin_username}'")
+            logger.info(f"Administrator account '{settings.admin_username}' already exists; preserving existing credentials.")
 
         # Seed initial sample camera if fleet is empty
         if db.query(Device).count() == 0:
