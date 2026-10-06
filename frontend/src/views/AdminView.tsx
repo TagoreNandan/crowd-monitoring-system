@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { RefreshCw, Search, Filter, UserPlus, Trash2, X, Shield } from 'lucide-react';
+import { RefreshCw, Search, Filter, UserPlus, Trash2, X } from 'lucide-react';
 import type { ActivityLog, AdminOverviewStats, User } from '../types/api';
 import {
   getAdminStats,

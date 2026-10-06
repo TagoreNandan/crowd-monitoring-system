@@ -25,7 +25,7 @@ def _parse_output_keys(entry: ActivityLog) -> dict[str, str]:
     if not entry.output_keys:
         return {}
     try:
-        parsed: Any = json.loads(entry.output_keys)
+        parsed: Any = json.loads(str(entry.output_keys))
     except (TypeError, ValueError):
         return {}
     if not isinstance(parsed, dict):
@@ -36,15 +36,15 @@ def _parse_output_keys(entry: ActivityLog) -> dict[str, str]:
 def _to_activity_item(entry: ActivityLog) -> ActivityItem:
     output_keys = _parse_output_keys(entry)
     return ActivityItem(
-        id=entry.id,
-        username=entry.username,
-        action=entry.action,
-        category=entry.category,
-        details=entry.details,
-        severity=entry.severity,
-        timestamp=entry.timestamp,
-        job_id=entry.job_id,
-        job_type=entry.job_type,
+        id=int(entry.id),
+        username=str(entry.username),
+        action=str(entry.action),
+        category=str(entry.category),
+        details=str(entry.details) if entry.details is not None else None,
+        severity=str(entry.severity),
+        timestamp=entry.timestamp,  # type: ignore[arg-type]
+        job_id=str(entry.job_id) if entry.job_id is not None else None,
+        job_type=str(entry.job_type) if entry.job_type is not None else None,
         has_download=bool(output_keys),
         available_views=list(output_keys),
     )
@@ -141,7 +141,7 @@ def download_activity_output(
             view=view,
         )
     else:
-        if not entry.job_id or job_store.get(entry.job_id) is None:
+        if not entry.job_id or job_store.get(str(entry.job_id)) is None:
             raise HTTPException(status_code=410, detail="The requested output is no longer available")
         if entry.job_type == "VIDEO":
             url = f"/api/jobs/{entry.job_id}/video/{view}"

@@ -100,7 +100,7 @@ def install_exception_handlers(app: FastAPI) -> None:
         return JSONResponse(
             status_code=exc.status_code,
             content=ErrorResponse(
-                error=ErrorDetail(code=f"http_{exc.status_code}", message=str(exc.detail)),
+                error=ErrorDetail(code=f"http_{exc.status_code}", message=exc.detail),
             ).model_dump(),
             headers=exc.headers,
         )

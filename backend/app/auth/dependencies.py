@@ -55,7 +55,7 @@ def get_current_user(
     payload = decode_access_token(resolved_token)
     if not payload:
         raise credentials_exception
-    username: str = payload.get("sub")
+    username: str | None = payload.get("sub")
     if not username:
         raise credentials_exception
     user = db.query(User).filter(User.username == username).first()

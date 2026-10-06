@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { ChevronLeft, ChevronRight, Download, Filter, RefreshCw, Search } from 'lucide-react';
 import type { ActivityListItem } from '../types/api';
-import { ActivityDownloadError, getActivities, requestActivityDownload } from '../lib/api';
+import { ActivityDownloadError, getActivities, getStoredToken, requestActivityDownload } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
 import { Badge } from '../components/ui/Badge';
 import { Button } from '../components/ui/Button';
@@ -104,7 +104,7 @@ export const ActivityLogView: React.FC = () => {
     try {
       const download = await requestActivityDownload(item.id, view, token || undefined);
       let downloadUrl = download.url;
-      const currentToken = token || getStoredToken();
+      const currentToken = token ?? getStoredToken();
       if (currentToken && (downloadUrl.startsWith('/api') || !downloadUrl.startsWith('http'))) {
         const sep = downloadUrl.includes('?') ? '&' : '?';
         downloadUrl = `${downloadUrl}${sep}token=${encodeURIComponent(currentToken)}`;

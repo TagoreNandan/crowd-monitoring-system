@@ -182,7 +182,7 @@ async def create_video_job(
         job_type=JobType.VIDEO,
         source_description=video.filename or "upload",
         temp_path=tmp_path,
-        user_id=user.id if user else None,
+        user_id=int(user.id) if user else None,
     )
 
     schedule_video_job(

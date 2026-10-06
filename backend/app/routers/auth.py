@@ -35,7 +35,7 @@ def login(
         .first()
     )
 
-    if not user or not verify_password(password_clean, user.hashed_password):
+    if not user or not verify_password(password_clean, str(user.hashed_password)):
         log_activity(
             db,
             action="LOGIN_FAILED",
@@ -55,7 +55,7 @@ def login(
             detail="Account is deactivated. Contact an administrator.",
         )
 
-    user.last_login = datetime.now(timezone.utc)
+    user.last_login = datetime.now(timezone.utc)  # type: ignore[assignment]
     db.commit()
 
     token = create_access_token(
@@ -74,9 +74,9 @@ def login(
     return TokenResponse(
         access_token=token,
         token_type="bearer",
-        username=user.username,
-        role=user.role,
-        full_name=user.full_name or user.username,
+        username=str(user.username),
+        role=str(user.role),
+        full_name=str(user.full_name) if user.full_name else str(user.username),
     )
 
 
