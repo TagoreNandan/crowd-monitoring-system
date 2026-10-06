@@ -512,13 +512,15 @@ async def create_feed(
             _feed_peaks.pop(feed_id, None)
         raise HTTPException(status_code=500, detail=f"Failed to start feed: {exc}") from exc
 
+    recorder = LiveFeedRecorder(feed_id)
     with _feeds_lock:
         _active_feeds[feed_id] = session
+        _feed_recorders[feed_id] = recorder
         if req.device_id:
             _feed_device_ids[feed_id] = req.device_id
         if req.device_name:
             _feed_device_names[feed_id] = req.device_name
-    # Recording is now manual/on-demand via /api/feeds/{feed_id}/record/start
+    logger.info("Auto-recording initialized for feed %s (session %s)", feed_id, recorder.session_uid)
     return _build_feed_response(session, req.source_type)
 
 

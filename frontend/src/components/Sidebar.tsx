@@ -1,5 +1,17 @@
-import React from 'react';
-import { Activity, LayoutDashboard, Image as ImageIcon, Video, Radio, Shield, Camera } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import {
+  Activity,
+  LayoutDashboard,
+  Image as ImageIcon,
+  Video,
+  Radio,
+  Shield,
+  Camera,
+  ChevronLeft,
+  ChevronRight,
+  PanelLeftClose,
+  PanelLeftOpen,
+} from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
 export type ViewType = 'dashboard' | 'overview' | 'feed' | 'devices' | 'image' | 'video' | 'analytics' | 'activity' | 'admin';
@@ -18,6 +30,23 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onOpenAuth,
 }) => {
   const { isAdmin } = useAuth();
+  const [isCollapsed, setIsCollapsed] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('cms_sidebar_collapsed') === 'true';
+    } catch {
+      return false;
+    }
+  });
+
+  const toggleCollapse = () => {
+    setIsCollapsed((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem('cms_sidebar_collapsed', String(next));
+      } catch {}
+      return next;
+    });
+  };
 
   const handleSelect = (view: ViewType) => {
     if (view === 'admin' && !isAdmin) {
@@ -38,18 +67,44 @@ export const Sidebar: React.FC<SidebarProps> = ({
   ];
 
   return (
-    <aside className="w-60 bg-zinc-950 border-r border-zinc-800/80 flex flex-col justify-between h-screen sticky top-0 shrink-0 select-none">
+    <aside
+      className={`${
+        isCollapsed ? 'w-16' : 'w-60'
+      } bg-zinc-950 border-r border-zinc-800/80 flex flex-col justify-between h-screen sticky top-0 shrink-0 select-none transition-all duration-200 ease-in-out z-20`}
+    >
       <div>
         {/* Header Area */}
-        <div className="h-14 px-5 border-b border-zinc-800/80 flex items-center justify-between">
-          <span className="text-xs font-mono font-medium text-zinc-300 tracking-wider uppercase">
-            Crowd Monitor
-          </span>
-          <span className="text-[10px] font-mono text-zinc-600">v0.1</span>
+        <div
+          className={`h-14 border-b border-zinc-800/80 flex items-center ${
+            isCollapsed ? 'justify-center px-2' : 'justify-between px-4'
+          }`}
+        >
+          {!isCollapsed && (
+            <div className="flex items-center gap-2 overflow-hidden">
+              <span className="text-xs font-mono font-bold text-zinc-200 tracking-wider uppercase truncate">
+                Crowd Monitor
+              </span>
+              <span className="text-[10px] font-mono text-zinc-500 bg-zinc-900 px-1 py-0.5 rounded border border-zinc-800">
+                v0.1
+              </span>
+            </div>
+          )}
+
+          <button
+            onClick={toggleCollapse}
+            className="p-1.5 rounded-md text-zinc-500 hover:text-zinc-200 hover:bg-zinc-900 border border-transparent hover:border-zinc-800 transition-colors cursor-pointer"
+            title={isCollapsed ? 'Expand sidebar' : 'Minimize sidebar'}
+          >
+            {isCollapsed ? (
+              <PanelLeftOpen className="w-4 h-4 text-zinc-400" />
+            ) : (
+              <PanelLeftClose className="w-4 h-4 text-zinc-400" />
+            )}
+          </button>
         </div>
 
         {/* Minimal Nav List */}
-        <nav className="p-2 space-y-0.5">
+        <nav className="p-2 space-y-1">
           {navItems.map((item) => {
             const Icon = item.icon;
             const isActive =
@@ -60,14 +115,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <button
                 key={item.id}
                 onClick={() => handleSelect(item.id as ViewType)}
-                className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-md text-xs font-medium transition-colors cursor-pointer ${
+                title={isCollapsed ? item.label : undefined}
+                className={`w-full flex items-center rounded-md text-xs font-medium transition-colors cursor-pointer ${
+                  isCollapsed ? 'justify-center p-2.5' : 'gap-2.5 px-3 py-2'
+                } ${
                   isActive
                     ? 'bg-zinc-900 text-zinc-100 border border-zinc-800'
                     : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900/50'
                 }`}
               >
-                <Icon className={`w-4 h-4 ${isActive ? 'text-zinc-100' : 'text-zinc-500'}`} />
-                <span>{item.label}</span>
+                <Icon className={`w-4 h-4 shrink-0 ${isActive ? 'text-zinc-100' : 'text-zinc-500'}`} />
+                {!isCollapsed && <span className="truncate">{item.label}</span>}
               </button>
             );
           })}
@@ -75,30 +133,37 @@ export const Sidebar: React.FC<SidebarProps> = ({
           {/* Admin Navigation Item - Strictly RBAC protected: visible ONLY to authenticated Administrators */}
           {isAdmin && (
             <>
-              <div className="pt-3 pb-1 px-3">
+              <div className="pt-2 pb-1 px-1">
                 <div className="border-t border-zinc-900" />
               </div>
 
               <button
                 onClick={() => handleSelect('admin')}
-                className={`w-full flex items-center justify-between px-3 py-2 rounded-md text-xs font-medium transition-colors cursor-pointer ${
+                title={isCollapsed ? 'Admin Console' : undefined}
+                className={`w-full flex items-center rounded-md text-xs font-medium transition-colors cursor-pointer ${
+                  isCollapsed ? 'justify-center p-2.5' : 'gap-2.5 px-3 py-2'
+                } ${
                   activeView === 'admin'
                     ? 'bg-zinc-900 text-zinc-100 border border-zinc-800'
                     : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900/50'
                 }`}
               >
-                <div className="flex items-center gap-2.5">
-                  <Shield className={`w-4 h-4 ${activeView === 'admin' ? 'text-zinc-100' : 'text-zinc-500'}`} />
-                  <span>Admin Console</span>
-                </div>
+                <Shield
+                  className={`w-4 h-4 shrink-0 ${activeView === 'admin' ? 'text-zinc-100' : 'text-zinc-500'}`}
+                />
+                {!isCollapsed && <span className="truncate">Admin Console</span>}
               </button>
             </>
           )}
         </nav>
       </div>
 
-      <div className="p-4 border-t border-zinc-900 text-[10px] font-mono text-zinc-600">
-        AI Density & Clustering
+      <div
+        className={`p-3 border-t border-zinc-900 text-[10px] font-mono text-zinc-600 ${
+          isCollapsed ? 'text-center' : ''
+        }`}
+      >
+        {isCollapsed ? 'AI' : 'AI Density & Clustering'}
       </div>
     </aside>
   );

@@ -259,12 +259,12 @@ export const StreamPanel: React.FC<StreamPanelProps> = memo(({
 
   return (
     <div
-      className={`group relative flex flex-col bg-zinc-950 rounded-lg border overflow-hidden transition-all duration-200 ${
+      className={`group relative flex flex-col h-full min-h-0 bg-zinc-950 rounded-lg border overflow-hidden transition-all duration-200 ${
         isFocused ? 'border-zinc-500 shadow-2xl ring-1 ring-zinc-500' : 'border-zinc-800 hover:border-zinc-700'
       } ${className}`}
     >
       {/* Top Header Bar */}
-      <div className="h-10 px-3 bg-zinc-900/90 border-b border-zinc-800/80 flex items-center justify-between z-10 shrink-0">
+      <div className="h-9 px-3 bg-zinc-900/90 border-b border-zinc-800/80 flex items-center justify-between z-10 shrink-0">
         <div className="flex items-center gap-2 min-w-0">
           {/* Status Indicator */}
           {connectionState === 'LIVE' ? (
@@ -298,37 +298,6 @@ export const StreamPanel: React.FC<StreamPanelProps> = memo(({
 
         {/* Top Control Actions */}
         <div className="flex items-center gap-1 shrink-0">
-          {/* View Mode Switcher */}
-          <div className="hidden sm:flex items-center bg-zinc-950 rounded p-0.5 border border-zinc-800 text-[10px] font-mono">
-            <button
-              onClick={() => setViewMode('bbox')}
-              className={`px-1.5 py-0.5 rounded transition-colors ${
-                viewMode === 'bbox' ? 'bg-zinc-800 text-zinc-100 font-semibold' : 'text-zinc-500 hover:text-zinc-300'
-              }`}
-              title="Detection Boxes"
-            >
-              Box
-            </button>
-            <button
-              onClick={() => setViewMode('heatmap')}
-              className={`px-1.5 py-0.5 rounded transition-colors ${
-                viewMode === 'heatmap' ? 'bg-zinc-800 text-zinc-100 font-semibold' : 'text-zinc-500 hover:text-zinc-300'
-              }`}
-              title="Density Heatmap"
-            >
-              Heat
-            </button>
-            <button
-              onClick={() => setViewMode('combined')}
-              className={`px-1.5 py-0.5 rounded transition-colors ${
-                viewMode === 'combined' ? 'bg-zinc-800 text-zinc-100 font-semibold' : 'text-zinc-500 hover:text-zinc-300'
-              }`}
-              title="Combined Overlay"
-            >
-              Blend
-            </button>
-          </div>
-
           {/* Record Button */}
           <button
             onClick={isRecording ? handleStopRecording : handleStartRecording}
@@ -378,7 +347,37 @@ export const StreamPanel: React.FC<StreamPanelProps> = memo(({
       </div>
 
       {/* Video Viewport Container */}
-      <div className="relative flex-1 min-h-[220px] bg-zinc-950 flex items-center justify-center overflow-hidden select-none">
+      <div className="relative flex-1 min-h-0 bg-zinc-950 flex items-center justify-center overflow-hidden select-none">
+        {/* Floating Glassmorphic View Mode Switcher */}
+        <div className="absolute top-2 left-2 z-20 flex items-center bg-zinc-950/75 backdrop-blur-md rounded-md p-0.5 border border-zinc-700/60 shadow-lg text-[10px] font-mono select-none">
+          <button
+            onClick={() => setViewMode('bbox')}
+            className={`px-2 py-0.5 rounded transition-all cursor-pointer ${
+              viewMode === 'bbox' ? 'bg-zinc-800 text-zinc-100 font-semibold shadow-sm' : 'text-zinc-400 hover:text-zinc-200'
+            }`}
+            title="Detection Boxes"
+          >
+            Box
+          </button>
+          <button
+            onClick={() => setViewMode('heatmap')}
+            className={`px-2 py-0.5 rounded transition-all cursor-pointer ${
+              viewMode === 'heatmap' ? 'bg-zinc-800 text-zinc-100 font-semibold shadow-sm' : 'text-zinc-400 hover:text-zinc-200'
+            }`}
+            title="Density Heatmap"
+          >
+            Heat
+          </button>
+          <button
+            onClick={() => setViewMode('combined')}
+            className={`px-2 py-0.5 rounded transition-all cursor-pointer ${
+              viewMode === 'combined' ? 'bg-zinc-800 text-zinc-100 font-semibold shadow-sm' : 'text-zinc-400 hover:text-zinc-200'
+            }`}
+            title="Combined Overlay"
+          >
+            Blend
+          </button>
+        </div>
         {currentVideoSrc ? (
           <img
             src={currentVideoSrc}

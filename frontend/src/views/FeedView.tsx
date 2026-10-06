@@ -18,6 +18,8 @@ import {
   SlidersHorizontal,
   ChevronDown,
   ChevronUp,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
 import {
   createFeed,
@@ -59,6 +61,7 @@ export const FeedView: React.FC<FeedViewProps> = ({ initialDevice }) => {
   const [isIngestionPanelOpen, setIsIngestionPanelOpen] = useState<boolean>(false);
   const [deviceActionLoading, setDeviceActionLoading] = useState<string | null>(null);
   const [batchActionLoading, setBatchActionLoading] = useState<boolean>(false);
+  const [currentPage, setCurrentPage] = useState<number>(1);
 
   // Single-feed detailed view state (for the focused feed or primary feed)
   const [activeFeed, setActiveFeed] = useState<FeedResponse | null>(null);
@@ -429,24 +432,35 @@ export const FeedView: React.FC<FeedViewProps> = ({ initialDevice }) => {
     }
   };
 
-  // Grid column CSS based on active stream count
+  // 6 cameras maximum per page pagination
+  const CAMS_PER_PAGE = 6;
+  const totalPages = Math.max(1, Math.ceil(activeFeeds.length / CAMS_PER_PAGE));
+  const safePage = Math.min(currentPage, totalPages);
+
+  // Feeds to display on current page
+  const visibleFeeds = useMemo(() => {
+    const startIdx = (safePage - 1) * CAMS_PER_PAGE;
+    return activeFeeds.slice(startIdx, startIdx + CAMS_PER_PAGE);
+  }, [activeFeeds, safePage]);
+
+  // Viewport-fitted Grid layout CSS based on visible stream count (max 6)
   const gridLayoutClass = useMemo(() => {
-    const count = activeFeeds.length;
+    const count = visibleFeeds.length;
     switch (count) {
       case 1:
-        return 'grid-cols-1';
+        return 'grid-cols-1 grid-rows-1';
       case 2:
-        return 'grid-cols-1 md:grid-cols-2';
+        return 'grid-cols-2 grid-rows-1';
       case 3:
-        return 'grid-cols-1 md:grid-cols-2 lg:grid-cols-3';
+        return 'grid-cols-3 grid-rows-1';
       case 4:
-        return 'grid-cols-1 md:grid-cols-2';
+        return 'grid-cols-2 grid-rows-2';
       case 5:
       case 6:
       default:
-        return 'grid-cols-1 md:grid-cols-2 lg:grid-cols-3';
+        return 'grid-cols-3 grid-rows-2';
     }
-  }, [activeFeeds.length]);
+  }, [visibleFeeds.length]);
 
   // Aggregate stats across all active feeds
   const aggregateMetrics = useMemo(() => {
@@ -481,38 +495,58 @@ export const FeedView: React.FC<FeedViewProps> = ({ initialDevice }) => {
   const currentDisplayedFrame = getDisplayedFrame();
 
   return (
-    <div className="p-6 md:p-8 max-w-7xl mx-auto space-y-6">
+    <div className="h-full min-h-0 flex flex-col p-3 md:p-4 gap-2 overflow-hidden select-none">
       {/* Top Header Bar */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-zinc-800 pb-5">
-        <div>
-          <div className="flex items-center gap-3">
-            <h1 className="text-2xl font-bold tracking-tight text-zinc-100 flex items-center gap-2">
-              Real-Time Feed
-            </h1>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-zinc-800 pb-2.5 shrink-0">
+        <div className="flex items-center gap-3">
+          <h1 className="text-xl font-bold tracking-tight text-zinc-100 flex items-center gap-2">
+            Real-Time Feed
+          </h1>
 
-            {/* Stream Count Badge */}
+          {/* Stream Count Badge */}
+          <span
+            className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-mono border ${
+              activeFeeds.length > 0
+                ? 'text-emerald-400 bg-emerald-950/60 border-emerald-800/60'
+                : 'text-zinc-500 bg-zinc-900 border-zinc-800'
+            }`}
+          >
             <span
-              className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-mono border ${
-                activeFeeds.length > 0
-                  ? 'text-emerald-400 bg-emerald-950/60 border-emerald-800/60'
-                  : 'text-zinc-500 bg-zinc-900 border-zinc-800'
+              className={`w-1.5 h-1.5 rounded-full ${
+                activeFeeds.length > 0 ? 'bg-emerald-400 animate-pulse' : 'bg-zinc-600'
               }`}
-            >
-              <span
-                className={`w-1.5 h-1.5 rounded-full ${
-                  activeFeeds.length > 0 ? 'bg-emerald-400 animate-pulse' : 'bg-zinc-600'
-                }`}
-              />
-              {activeFeeds.length} {activeFeeds.length === 1 ? 'Stream Active' : 'Streams Active'}
-            </span>
-          </div>
-          <p className="text-xs text-zinc-400 mt-1">
-            Simultaneous multi-camera CCTV monitoring &amp; real-time crowd analytics
-          </p>
+            />
+            {activeFeeds.length} {activeFeeds.length === 1 ? 'Stream Active' : 'Streams Active'}
+          </span>
         </div>
 
         {/* Global Action Controls */}
         <div className="flex items-center gap-2">
+          {/* Pagination Controls when multiple pages (max 6 cams/page) */}
+          {totalPages > 1 && (
+            <div className="flex items-center gap-1.5 bg-zinc-900 px-2 py-1 rounded-md border border-zinc-800 text-xs font-mono">
+              <button
+                onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                disabled={safePage === 1}
+                className="p-1 rounded text-zinc-400 hover:text-zinc-100 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+                title="Previous 6 Cameras"
+              >
+                <ChevronLeft className="w-3.5 h-3.5" />
+              </button>
+              <span className="text-zinc-300 font-semibold px-1">
+                Page {safePage} / {totalPages}
+              </span>
+              <button
+                onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                disabled={safePage >= totalPages}
+                className="p-1 rounded text-zinc-400 hover:text-zinc-100 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+                title="Next 6 Cameras"
+              >
+                <ChevronRight className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          )}
+
           {/* Mode Switcher (Grid vs Single) */}
           {activeFeeds.length > 0 && (
             <div className="flex items-center bg-zinc-900 p-1 rounded-md border border-zinc-800 text-xs font-mono">
@@ -581,74 +615,71 @@ export const FeedView: React.FC<FeedViewProps> = ({ initialDevice }) => {
       </div>
 
       {/* Fleet Device Selector Strip (Synced directly with Device Management) */}
-      <div className="p-3.5 rounded-lg bg-zinc-900/40 border border-zinc-800 space-y-2.5">
-        <div className="flex items-center justify-between">
-          <span className="font-mono text-xs font-semibold text-zinc-300 flex items-center gap-1.5">
+      <div className="px-3 py-1.5 rounded-lg bg-zinc-900/40 border border-zinc-800 shrink-0">
+        <div className="flex items-center justify-between gap-3 overflow-x-auto">
+          <div className="flex items-center gap-2 shrink-0">
             <Camera className="w-3.5 h-3.5 text-zinc-400" />
-            Fleet Camera Stream Toggles
-          </span>
-          <span className="text-[11px] text-zinc-500 font-mono">
-            Check or uncheck cameras to stream concurrently
-          </span>
-        </div>
-
-        {enrolledDevices.length === 0 ? (
-          <p className="text-xs text-zinc-500 font-mono py-1">
-            No enrolled devices in fleet. Onboard RTSP or Webcam devices in the Device Fleet tab to stream directly.
-          </p>
-        ) : (
-          <div className="flex flex-wrap gap-2 pt-1">
-            {enrolledDevices.map((dev) => {
-              const active = activeFeeds.find((f) => f.device_id === dev.device_id);
-              const isRunning = !!active;
-              const isLoading = deviceActionLoading === dev.device_id;
-
-              return (
-                <button
-                  key={dev.device_id}
-                  onClick={() => handleToggleDeviceStream(dev)}
-                  disabled={isLoading}
-                  className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-mono transition-all border cursor-pointer ${
-                    isRunning
-                      ? 'bg-emerald-950/70 border-emerald-700/80 text-emerald-300 shadow-sm'
-                      : 'bg-zinc-950/80 border-zinc-800 text-zinc-400 hover:border-zinc-700 hover:text-zinc-200'
-                  }`}
-                  title={isRunning ? `Click to stop stream for ${dev.name}` : `Click to stream ${dev.name}`}
-                >
-                  {isLoading ? (
-                    <RefreshCw className="w-3 h-3 animate-spin text-amber-400" />
-                  ) : (
-                    <span
-                      className={`w-2 h-2 rounded-full ${
-                        isRunning ? 'bg-emerald-400 animate-pulse' : 'bg-zinc-600'
-                      }`}
-                    />
-                  )}
-                  <span className="font-medium text-zinc-200">{dev.name}</span>
-                  <span className="text-[10px] text-zinc-500">({dev.stream_type})</span>
-                </button>
-              );
-            })}
+            <span className="font-mono text-xs font-semibold text-zinc-300">Fleet Cameras:</span>
           </div>
-        )}
+
+          {enrolledDevices.length === 0 ? (
+            <p className="text-xs text-zinc-500 font-mono py-0.5">
+              No enrolled devices in fleet. Onboard RTSP or Webcam devices in Device Fleet to stream directly.
+            </p>
+          ) : (
+            <div className="flex items-center gap-1.5 overflow-x-auto py-0.5 scrollbar-thin">
+              {enrolledDevices.map((dev) => {
+                const active = activeFeeds.find((f) => f.device_id === dev.device_id);
+                const isRunning = !!active;
+                const isLoading = deviceActionLoading === dev.device_id;
+
+                return (
+                  <button
+                    key={dev.device_id}
+                    onClick={() => handleToggleDeviceStream(dev)}
+                    disabled={isLoading}
+                    className={`flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-mono transition-all border shrink-0 cursor-pointer ${
+                      isRunning
+                        ? 'bg-emerald-950/70 border-emerald-700/80 text-emerald-300 shadow-sm'
+                        : 'bg-zinc-950/80 border-zinc-800 text-zinc-400 hover:border-zinc-700 hover:text-zinc-200'
+                    }`}
+                    title={isRunning ? `Click to stop stream for ${dev.name}` : `Click to stream ${dev.name}`}
+                  >
+                    {isLoading ? (
+                      <RefreshCw className="w-2.5 h-2.5 animate-spin text-amber-400" />
+                    ) : (
+                      <span
+                        className={`w-2 h-2 rounded-full ${
+                          isRunning ? 'bg-emerald-400 animate-pulse' : 'bg-zinc-600'
+                        }`}
+                      />
+                    )}
+                    <span className="font-medium text-zinc-200 text-xs">{dev.name}</span>
+                    <span className="text-[10px] text-zinc-500 hidden sm:inline">({dev.stream_type})</span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Collapsible Custom Ingestion Settings Panel */}
       {isIngestionPanelOpen && (
-        <div className="p-4 rounded-lg bg-zinc-900/60 border border-zinc-800 space-y-3 text-xs animate-in fade-in">
-          <div className="flex items-center justify-between border-b border-zinc-800 pb-2">
+        <div className="p-3.5 rounded-lg bg-zinc-900/90 border border-zinc-800 space-y-2.5 text-xs animate-in fade-in shrink-0 z-20">
+          <div className="flex items-center justify-between border-b border-zinc-800 pb-1.5">
             <span className="font-mono font-medium text-zinc-300 uppercase tracking-wider text-[11px]">
               Ingest Custom Source (Sample Video / Webcam / Custom URL)
             </span>
             <button
               onClick={() => setIsIngestionPanelOpen(false)}
-              className="text-zinc-500 hover:text-zinc-300"
+              className="text-zinc-500 hover:text-zinc-300 cursor-pointer"
             >
               <X className="w-3.5 h-3.5" />
             </button>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-0.5">
             <div>
               <label className="text-zinc-400 block mb-1">Source Type</label>
               <select
@@ -708,7 +739,7 @@ export const FeedView: React.FC<FeedViewProps> = ({ initialDevice }) => {
             </div>
           </div>
 
-          <div className="flex justify-end pt-2">
+          <div className="flex justify-end pt-1">
             <Button onClick={handleStartCustomFeed} isLoading={starting} size="sm">
               <Play className="w-3 h-3 mr-1 fill-current" />
               Launch Stream
@@ -718,10 +749,10 @@ export const FeedView: React.FC<FeedViewProps> = ({ initialDevice }) => {
       )}
 
       {error && (
-        <div className="p-3.5 rounded-lg bg-rose-950/40 border border-rose-800/60 text-xs text-rose-300 flex items-start gap-2">
+        <div className="p-2.5 rounded-lg bg-rose-950/40 border border-rose-800/60 text-xs text-rose-300 flex items-start gap-2 shrink-0">
           <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
           <div className="flex-1">{error}</div>
-          <button onClick={() => setError(null)} className="text-rose-400 hover:text-rose-200">
+          <button onClick={() => setError(null)} className="text-rose-400 hover:text-rose-200 cursor-pointer">
             <X className="w-3.5 h-3.5" />
           </button>
         </div>
@@ -731,35 +762,53 @@ export const FeedView: React.FC<FeedViewProps> = ({ initialDevice }) => {
           VIEW MODE 1: MULTI-STREAM SURVEILLANCE WALL (GRID VIEW)
           ========================================================================= */}
       {isShowingGrid && activeFeeds.length > 0 ? (
-        <div className="space-y-4">
+        <div className="flex-1 min-h-0 flex flex-col gap-2 overflow-hidden">
           {/* Top Aggregate Fleet KPI Strip */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 font-mono text-xs">
-            <div className="p-3 rounded-lg bg-zinc-900/50 border border-zinc-800 flex items-center justify-between">
-              <span className="text-zinc-400">Total Active Feeds:</span>
-              <span className="text-base font-bold text-emerald-400">{activeFeeds.length} / 6</span>
+          <div className="flex items-center justify-between px-3 py-1.5 rounded-md bg-zinc-900/50 border border-zinc-800 font-mono text-xs shrink-0">
+            <div className="flex items-center gap-4">
+              <span className="text-zinc-400">
+                Active Feeds: <strong className="text-emerald-400">{activeFeeds.length}</strong>
+              </span>
+              <span className="text-zinc-400">
+                Total Monitored: <strong className="text-zinc-100">{aggregateMetrics.totalCount}</strong>
+              </span>
+              <span className="text-zinc-400 flex items-center gap-1.5">
+                Highest Risk:
+                <Badge variant={getRiskVariant(aggregateMetrics.maxRisk)} className="font-bold text-[10px] py-0 px-1.5">
+                  {aggregateMetrics.maxRisk}
+                </Badge>
+              </span>
+              <span className="text-zinc-500 hidden md:inline">
+                Wall Matrix: Showing {visibleFeeds.length} of {activeFeeds.length}
+              </span>
             </div>
 
-            <div className="p-3 rounded-lg bg-zinc-900/50 border border-zinc-800 flex items-center justify-between">
-              <span className="text-zinc-400">Total Monitored People:</span>
-              <span className="text-base font-bold text-zinc-100">{aggregateMetrics.totalCount}</span>
-            </div>
-
-            <div className="p-3 rounded-lg bg-zinc-900/50 border border-zinc-800 flex items-center justify-between">
-              <span className="text-zinc-400">Highest Risk Zone:</span>
-              <Badge variant={getRiskVariant(aggregateMetrics.maxRisk)} className="font-bold text-[10px]">
-                {aggregateMetrics.maxRisk}
-              </Badge>
-            </div>
-
-            <div className="p-3 rounded-lg bg-zinc-900/50 border border-zinc-800 flex items-center justify-between">
-              <span className="text-zinc-400">Layout Matrix:</span>
-              <span className="text-zinc-300 font-semibold uppercase">{activeFeeds.length} Streams Auto</span>
-            </div>
+            {totalPages > 1 && (
+              <div className="flex items-center gap-1.5">
+                <button
+                  onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                  disabled={safePage === 1}
+                  className="px-2 py-0.5 rounded bg-zinc-800 text-zinc-300 hover:text-white disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1 text-[11px] cursor-pointer"
+                >
+                  <ChevronLeft className="w-3 h-3" /> Prev
+                </button>
+                <span className="text-zinc-300 text-[11px]">
+                  Page {safePage}/{totalPages}
+                </span>
+                <button
+                  onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                  disabled={safePage >= totalPages}
+                  className="px-2 py-0.5 rounded bg-zinc-800 text-zinc-300 hover:text-white disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1 text-[11px] cursor-pointer"
+                >
+                  Next <ChevronRight className="w-3 h-3" />
+                </button>
+              </div>
+            )}
           </div>
 
-          {/* Dynamic Adaptive CCTV Grid */}
-          <div className={`grid gap-4 ${gridLayoutClass}`}>
-            {activeFeeds.map((feed) => (
+          {/* Dynamic Adaptive CCTV Grid (Strict Viewport Locking, max 6 per page) */}
+          <div className={`grid flex-1 min-h-0 gap-2.5 ${gridLayoutClass}`}>
+            {visibleFeeds.map((feed) => (
               <StreamPanel
                 key={feed.feed_id}
                 feed={feed}
@@ -776,7 +825,7 @@ export const FeedView: React.FC<FeedViewProps> = ({ initialDevice }) => {
         /* =========================================================================
             EMPTY STATE: ZERO CAMERAS RUNNING
             ========================================================================= */
-        <div className="p-12 text-center rounded-xl bg-zinc-900/20 border border-zinc-800/80 space-y-4 my-4">
+        <div className="flex-1 min-h-0 flex flex-col items-center justify-center p-8 text-center rounded-xl bg-zinc-900/20 border border-zinc-800/80 space-y-4">
           <div className="w-12 h-12 rounded-full bg-zinc-900 border border-zinc-800 flex items-center justify-center mx-auto text-zinc-500 shadow-inner">
             <Radio className="w-6 h-6" />
           </div>
@@ -795,7 +844,7 @@ export const FeedView: React.FC<FeedViewProps> = ({ initialDevice }) => {
                 size="sm"
                 onClick={handleStartAllFleet}
                 isLoading={batchActionLoading}
-                className="bg-emerald-600 hover:bg-emerald-500 text-white font-medium text-xs"
+                className="bg-emerald-600 hover:bg-emerald-500 text-white font-medium text-xs cursor-pointer"
               >
                 <Play className="w-3 h-3 mr-1.5 fill-current" />
                 Launch All Fleet Cameras
@@ -807,7 +856,7 @@ export const FeedView: React.FC<FeedViewProps> = ({ initialDevice }) => {
               size="sm"
               onClick={handleStartCustomFeed}
               isLoading={starting}
-              className="text-xs text-zinc-300 border-zinc-700"
+              className="text-xs text-zinc-300 border-zinc-700 cursor-pointer"
             >
               <Play className="w-3 h-3 mr-1.5" />
               Launch Sample Crowd Feed
@@ -818,10 +867,10 @@ export const FeedView: React.FC<FeedViewProps> = ({ initialDevice }) => {
         /* =========================================================================
             VIEW MODE 2: SINGLE CAMERA DETAILED INSPECTION VIEW
             ========================================================================= */
-        <div className="space-y-4">
+        <div className="flex-1 min-h-0 flex flex-col gap-2 overflow-hidden">
           {/* Quick Return to Grid Banner if multiple streams are running */}
           {activeFeeds.length > 1 && (
-            <div className="flex items-center justify-between p-3 rounded-lg bg-zinc-900/80 border border-zinc-800 text-xs font-mono">
+            <div className="flex items-center justify-between px-3 py-1.5 rounded-lg bg-zinc-900/80 border border-zinc-800 text-xs font-mono shrink-0">
               <div className="flex items-center gap-2 text-zinc-300">
                 <Maximize2 className="w-4 h-4 text-cyan-400" />
                 <span>
@@ -830,7 +879,7 @@ export const FeedView: React.FC<FeedViewProps> = ({ initialDevice }) => {
                     {activeFeed?.device_name || activeFeed?.description || activeFeed?.feed_id}
                   </strong>
                 </span>
-                <span className="text-zinc-500">({activeFeeds.length} streams running in background)</span>
+                <span className="text-zinc-500">({activeFeeds.length} streams running)</span>
               </div>
 
               <Button
@@ -840,7 +889,7 @@ export const FeedView: React.FC<FeedViewProps> = ({ initialDevice }) => {
                   setFocusedFeedId(null);
                   setViewModePreference('grid');
                 }}
-                className="text-xs border-zinc-700 text-zinc-200 hover:bg-zinc-800 cursor-pointer"
+                className="text-xs border-zinc-700 text-zinc-200 hover:bg-zinc-800 cursor-pointer h-7 px-2.5"
               >
                 <LayoutGrid className="w-3.5 h-3.5 mr-1" />
                 Back to Multi-Stream Wall
@@ -849,88 +898,87 @@ export const FeedView: React.FC<FeedViewProps> = ({ initialDevice }) => {
           )}
 
           {/* Viewport & Side Telemetry Layout */}
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-            <div className="lg:col-span-8 space-y-4">
-              <div className="relative rounded-lg border border-zinc-800 bg-black min-h-[440px] flex flex-col justify-between overflow-hidden">
-                {connectionState === 'LIVE' && (
-                  <div className="flex items-center justify-between px-3 py-2 bg-zinc-950/90 border-b border-zinc-800 z-10">
-                    <div className="flex items-center gap-3 font-mono text-xs text-emerald-400">
-                      <div className="flex items-center gap-2">
-                        <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
-                        <span>STREAM: {activeFeed?.device_name || activeFeed?.feed_id}</span>
-                      </div>
-                      {isRecording && (
-                        <span className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-rose-950/90 border border-rose-800/80 text-rose-400 text-[11px] font-semibold animate-pulse">
-                          <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-ping" />
-                          REC {formatDuration(recordingDuration)}
-                        </span>
-                      )}
+          <div className="flex-1 min-h-0 flex flex-col lg:flex-row gap-3 overflow-hidden">
+            <div className="flex-1 min-h-0 flex flex-col gap-2 overflow-hidden">
+              <div className="relative flex-1 min-h-0 rounded-lg border border-zinc-800 bg-black flex items-center justify-center overflow-hidden">
+                {/* Floating Glassmorphic View Mode Switcher in Focus View */}
+                <div className="absolute top-2.5 left-2.5 z-20 flex items-center bg-zinc-950/75 backdrop-blur-md rounded-md p-0.5 border border-zinc-700/60 shadow-lg text-xs font-mono select-none">
+                  <button
+                    onClick={() => setViewMode('bbox')}
+                    className={`px-3 py-1 rounded transition-all cursor-pointer ${
+                      viewMode === 'bbox' ? 'bg-zinc-800 text-zinc-100 font-semibold shadow-sm' : 'text-zinc-400 hover:text-zinc-200'
+                    }`}
+                  >
+                    Box
+                  </button>
+                  <button
+                    onClick={() => setViewMode('heatmap')}
+                    className={`px-3 py-1 rounded transition-all cursor-pointer ${
+                      viewMode === 'heatmap' ? 'bg-zinc-800 text-zinc-100 font-semibold shadow-sm' : 'text-zinc-400 hover:text-zinc-200'
+                    }`}
+                  >
+                    Heat
+                  </button>
+                  <button
+                    onClick={() => setViewMode('combined')}
+                    className={`px-3 py-1 rounded transition-all cursor-pointer ${
+                      viewMode === 'combined' ? 'bg-zinc-800 text-zinc-100 font-semibold shadow-sm' : 'text-zinc-400 hover:text-zinc-200'
+                    }`}
+                  >
+                    Blend
+                  </button>
+                </div>
+
+                {/* Top Right Live & Rec Badges */}
+                <div className="absolute top-2.5 right-2.5 z-20 flex items-center gap-2 font-mono text-xs">
+                  {connectionState === 'LIVE' && (
+                    <span className="flex items-center gap-1.5 px-2.5 py-1 rounded bg-zinc-950/80 border border-zinc-800 text-emerald-400 backdrop-blur-sm">
+                      <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                      LIVE
+                    </span>
+                  )}
+                  {isRecording && (
+                    <span className="flex items-center gap-1.5 px-2.5 py-1 rounded bg-rose-950/90 border border-rose-800 text-rose-400 animate-pulse backdrop-blur-sm">
+                      <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-ping" />
+                      REC {formatDuration(recordingDuration)}
+                    </span>
+                  )}
+                </div>
+
+                {/* Video Image */}
+                {currentDisplayedFrame && (connectionState === 'LIVE' || connectionState === 'RECONNECTING') ? (
+                  <img src={currentDisplayedFrame} alt="live feed" className="w-full h-full object-contain max-h-full" />
+                ) : connectionState === 'CONNECTING' || connectionState === 'RECONNECTING' ? (
+                  <div className="p-8 text-center space-y-3 font-mono">
+                    <RefreshCw className="w-6 h-6 text-zinc-400 animate-spin mx-auto" />
+                    <p className="text-xs text-zinc-500">
+                      {connectionState === 'CONNECTING' ? 'Connecting to feed…' : 'Reconnecting…'}
+                    </p>
+                  </div>
+                ) : (
+                  <div className="p-8 text-center space-y-3 font-mono">
+                    <div className="w-10 h-10 rounded-full bg-zinc-900 border border-zinc-800 flex items-center justify-center mx-auto text-zinc-500">
+                      <Radio className="w-5 h-5" />
                     </div>
-                    <div className="flex items-center gap-1 bg-zinc-900 p-1 rounded border border-zinc-800">
-                      <button
-                        onClick={() => setViewMode('bbox')}
-                        className={`px-2.5 py-1 text-xs font-medium rounded transition-colors ${
-                          viewMode === 'bbox' ? 'bg-zinc-800 text-zinc-100' : 'text-zinc-400 hover:text-zinc-200'
-                        }`}
-                      >
-                        Live Video
-                      </button>
-                      <button
-                        onClick={() => setViewMode('heatmap')}
-                        className={`px-2.5 py-1 text-xs font-medium rounded transition-colors ${
-                          viewMode === 'heatmap' ? 'bg-zinc-800 text-zinc-100' : 'text-zinc-400 hover:text-zinc-200'
-                        }`}
-                      >
-                        Live Heatmap
-                      </button>
-                      <button
-                        onClick={() => setViewMode('combined')}
-                        className={`px-2.5 py-1 text-xs font-medium rounded transition-colors ${
-                          viewMode === 'combined' ? 'bg-zinc-800 text-zinc-100' : 'text-zinc-400 hover:text-zinc-200'
-                        }`}
-                      >
-                        Combined Overlay
-                      </button>
+                    <div>
+                      <h3 className="text-sm font-semibold text-zinc-300">Feed Offline</h3>
+                      <p className="text-xs text-zinc-500 max-w-xs mx-auto mt-1">
+                        Toggle a camera in the fleet bar above to begin streaming.
+                      </p>
                     </div>
                   </div>
                 )}
-
-                <div className="w-full flex-1 flex items-center justify-center relative min-h-[380px]">
-                  {currentDisplayedFrame && (connectionState === 'LIVE' || connectionState === 'RECONNECTING') ? (
-                    <img src={currentDisplayedFrame} alt="live feed" className="w-full max-h-[500px] object-contain" />
-                  ) : connectionState === 'CONNECTING' || connectionState === 'RECONNECTING' ? (
-                    <div className="p-16 text-center space-y-3">
-                      <RefreshCw className="w-6 h-6 text-zinc-400 animate-spin mx-auto" />
-                      <p className="text-xs text-zinc-500">
-                        {connectionState === 'CONNECTING' ? 'Connecting to feed…' : 'Reconnecting…'}
-                      </p>
-                    </div>
-                  ) : (
-                    <div className="p-16 text-center space-y-3">
-                      <div className="w-10 h-10 rounded-full bg-zinc-900 border border-zinc-800 flex items-center justify-center mx-auto text-zinc-500">
-                        <Radio className="w-5 h-5" />
-                      </div>
-                      <div>
-                        <h3 className="text-sm font-semibold text-zinc-300">Feed Offline</h3>
-                        <p className="text-xs text-zinc-500 max-w-xs mx-auto mt-1">
-                          Toggle a camera in the fleet bar above to begin streaming.
-                        </p>
-                      </div>
-                    </div>
-                  )}
-                </div>
               </div>
 
               {/* Single View Recording Download Banner */}
               {lastRecording && (
-                <div className="flex items-center justify-between p-3.5 rounded-lg bg-zinc-900/90 border border-emerald-900/60 text-xs">
-                  <div className="flex items-center gap-2.5">
+                <div className="flex items-center justify-between p-2.5 rounded-lg bg-zinc-900/90 border border-emerald-900/60 text-xs shrink-0">
+                  <div className="flex items-center gap-2">
                     <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
                     <div>
                       <span className="text-zinc-200 font-medium">Live recording saved successfully</span>
                       <span className="text-zinc-400 ml-2 font-mono">
-                        {lastRecording.duration_s}s • {lastRecording.frame_count} frames{' '}
-                        {lastRecording.s3_key ? '• S3 Cloud' : '• Local Storage'}
+                        {lastRecording.duration_s}s • {lastRecording.frame_count} frames
                       </span>
                     </div>
                   </div>
@@ -946,7 +994,7 @@ export const FeedView: React.FC<FeedViewProps> = ({ initialDevice }) => {
                         })()}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1.5 px-3 py-1 bg-zinc-800 hover:bg-zinc-700 text-zinc-100 rounded text-xs font-medium transition-colors border border-zinc-700"
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-zinc-800 hover:bg-zinc-700 text-zinc-100 rounded text-xs font-medium transition-colors border border-zinc-700 cursor-pointer"
                       >
                         <Download className="w-3.5 h-3.5" />
                         Download Video
@@ -954,7 +1002,7 @@ export const FeedView: React.FC<FeedViewProps> = ({ initialDevice }) => {
                     )}
                     <button
                       onClick={() => setLastRecording(null)}
-                      className="text-zinc-500 hover:text-zinc-300 p-1"
+                      className="text-zinc-500 hover:text-zinc-300 p-1 cursor-pointer"
                       title="Dismiss"
                     >
                       <X className="w-3.5 h-3.5" />
@@ -965,41 +1013,41 @@ export const FeedView: React.FC<FeedViewProps> = ({ initialDevice }) => {
             </div>
 
             {/* Right Telemetry Column (Deep Analytics) */}
-            <div className="lg:col-span-4 space-y-4">
-              <div className="p-5 rounded-lg bg-zinc-900/40 border border-zinc-800 space-y-1">
+            <div className="w-full lg:w-80 shrink-0 h-full overflow-y-auto space-y-2.5 pr-1 font-mono">
+              <div className="p-3.5 rounded-lg bg-zinc-900/40 border border-zinc-800 space-y-1">
                 <span className="text-xs text-zinc-400 font-medium flex items-center gap-1.5">
                   <Users className="w-3.5 h-3.5 text-zinc-400" />
                   Estimated Crowd
                 </span>
-                <div className="text-4xl font-semibold font-mono text-zinc-100">
+                <div className="text-3xl font-bold font-mono text-zinc-100">
                   {connectionState === 'LIVE' && metrics?.estimated_count != null ? metrics.estimated_count : '—'}
                 </div>
-                <p className="text-xs text-zinc-500">Spatial density estimate</p>
+                <p className="text-[11px] text-zinc-500">Spatial density estimate</p>
               </div>
 
-              <div className="p-5 rounded-lg bg-zinc-900/40 border border-zinc-800 space-y-1">
+              <div className="p-3.5 rounded-lg bg-zinc-900/40 border border-zinc-800 space-y-1">
                 <span className="text-xs text-zinc-400 font-medium flex items-center gap-1.5">
                   <Eye className="w-3.5 h-3.5 text-zinc-400" />
                   Visible People
                 </span>
-                <div className="text-3xl font-semibold font-mono text-zinc-200">
+                <div className="text-2xl font-bold font-mono text-zinc-200">
                   {connectionState === 'LIVE'
                     ? metrics?.visible_count !== undefined && metrics?.visible_count !== null
                       ? metrics.visible_count
                       : 'N/A'
                     : '—'}
                 </div>
-                <p className="text-xs text-zinc-500">Optical detection count</p>
+                <p className="text-[11px] text-zinc-500">Optical detection count</p>
               </div>
 
-              <div className="p-5 rounded-lg bg-zinc-900/40 border border-zinc-800 space-y-1">
+              <div className="p-3 rounded-lg bg-zinc-900/40 border border-zinc-800 flex items-center justify-between">
                 <span className="text-xs text-zinc-400 font-medium">Peak Count</span>
-                <div className="text-2xl font-semibold font-mono text-zinc-200">
+                <div className="text-lg font-bold font-mono text-zinc-200">
                   {connectionState === 'LIVE' ? (metrics?.peak_count ?? '—') : '—'}
                 </div>
               </div>
 
-              <div className="p-5 rounded-lg bg-zinc-900/40 border border-zinc-800 space-y-2">
+              <div className="p-3.5 rounded-lg bg-zinc-900/40 border border-zinc-800 space-y-2">
                 <div className="flex items-center justify-between">
                   <span className="text-xs text-zinc-400 font-medium">Risk Assessment</span>
                   {connectionState === 'LIVE' && metrics?.risk_status && (
@@ -1025,7 +1073,7 @@ export const FeedView: React.FC<FeedViewProps> = ({ initialDevice }) => {
                     <span>Clusters:</span>
                     <span className="text-zinc-200 font-medium">
                       {connectionState === 'LIVE' && metrics?.cluster_count != null
-                        ? `${metrics.cluster_count} (largest ${metrics.largest_cluster})`
+                        ? `${metrics.cluster_count} (max ${metrics.largest_cluster})`
                         : '—'}
                     </span>
                   </div>
@@ -1036,17 +1084,9 @@ export const FeedView: React.FC<FeedViewProps> = ({ initialDevice }) => {
                     </span>
                   </div>
                   <div className="flex justify-between">
-                    <span>Detector Latency:</span>
+                    <span>Latency:</span>
                     <span className="text-zinc-200 font-medium">
                       {connectionState === 'LIVE' && metrics?.latency_ms ? `${metrics.latency_ms}ms` : '—'}
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>Density Latency:</span>
-                    <span className="text-zinc-200 font-medium">
-                      {connectionState === 'LIVE' && metrics?.density_latency_ms
-                        ? `${metrics.density_latency_ms}ms`
-                        : '—'}
                     </span>
                   </div>
                 </div>
@@ -1054,43 +1094,43 @@ export const FeedView: React.FC<FeedViewProps> = ({ initialDevice }) => {
 
               {/* Focus Controls */}
               {activeFeed && (
-                <div className="pt-2 flex items-center gap-2">
+                <div className="pt-1 flex items-center gap-2">
                   {!isRecording ? (
                     <Button
                       variant="outline"
                       onClick={handleStartRecording}
                       isLoading={recordLoading}
-                      className="w-full border-rose-900/60 hover:bg-rose-950/40 text-rose-400 hover:text-rose-300"
+                      className="w-full border-rose-900/60 hover:bg-rose-950/40 text-rose-400 hover:text-rose-300 text-xs cursor-pointer"
                     >
-                      <Circle className="w-3.5 h-3.5 mr-1.5 fill-rose-500 text-rose-500" />
-                      Start Record
+                      <Circle className="w-3 h-3 mr-1.5 fill-rose-500 text-rose-500" />
+                      Record
                     </Button>
                   ) : (
                     <Button
                       variant="destructive"
                       onClick={handleStopRecording}
                       isLoading={recordLoading}
-                      className="w-full"
+                      className="w-full text-xs cursor-pointer"
                     >
-                      <Square className="w-3.5 h-3.5 mr-1.5 fill-current" />
-                      Stop Record
+                      <Square className="w-3 h-3 mr-1.5 fill-current" />
+                      Stop Rec
                     </Button>
                   )}
 
                   <Button
                     variant="outline"
                     onClick={() => handleStopSingleFeed(activeFeed.feed_id)}
-                    className="border-zinc-800 text-zinc-400 hover:text-red-400"
+                    className="border-zinc-800 text-zinc-400 hover:text-red-400 text-xs cursor-pointer"
                   >
-                    <Square className="w-3.5 h-3.5 mr-1 text-zinc-400" />
-                    Stop Stream
+                    <Square className="w-3 h-3 mr-1 text-zinc-400" />
+                    Stop
                   </Button>
                 </div>
               )}
             </div>
           </div>
         </div>
-      )}
     </div>
   );
 };
+
