@@ -13,7 +13,7 @@ from __future__ import annotations
 import threading
 import time
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional
 
@@ -27,6 +27,7 @@ class JobRecord:
     status: JobStatus
     created_at: float
     source_description: str = ""
+    user_id: Optional[int] = None
     started_at: Optional[float] = None
     completed_at: Optional[float] = None
     progress: float = 0.0
@@ -57,6 +58,11 @@ class JobRecord:
     # map (no extra DM-Count calls) -- see `jobs/video_runner.py`.
     heatmap_video_path: Optional[Path] = None
     combined_video_path: Optional[Path] = None
+    # S3 object keys, populated only when STORAGE_BACKEND=s3. Empty dicts
+    # in local mode -- the existing local path fields remain the source
+    # of truth there.
+    video_storage_keys: dict[str, str] = field(default_factory=dict)
+    image_storage_keys: dict[str, str] = field(default_factory=dict)
 
 
 class JobStore:
@@ -79,6 +85,7 @@ class JobStore:
         source_description: str = "",
         temp_path: Optional[Path] = None,
         message: Optional[str] = None,
+        user_id: Optional[int] = None,
     ) -> JobRecord:
         with self._lock:
             self._purge_expired_locked()
@@ -88,6 +95,7 @@ class JobStore:
                 status=JobStatus.PENDING,
                 created_at=time.time(),
                 source_description=source_description,
+                user_id=user_id,
                 temp_path=temp_path,
                 message=message,
             )
@@ -101,13 +109,17 @@ class JobStore:
 
     def mark_running(self, job_id: str) -> None:
         with self._lock:
-            record = self._jobs[job_id]
+            record = self._jobs.get(job_id)
+            if record is None:
+                return
             record.status = JobStatus.RUNNING
             record.started_at = time.time()
 
     def update_progress(self, job_id: str, progress: float, message: Optional[str] = None) -> None:
         with self._lock:
-            record = self._jobs[job_id]
+            record = self._jobs.get(job_id)
+            if record is None:
+                return
             record.progress = max(0.0, min(1.0, progress))
             if message is not None:
                 record.message = message
@@ -122,7 +134,9 @@ class JobStore:
         metrics: dict[str, Any],
     ) -> None:
         with self._lock:
-            record = self._jobs[job_id]
+            record = self._jobs.get(job_id)
+            if record is None:
+                return
             record.progress = max(0.0, min(1.0, progress))
             record.current_frame = current_frame
             record.total_frames = total_frames
@@ -131,7 +145,9 @@ class JobStore:
 
     def mark_completed(self, job_id: str, result: dict[str, Any]) -> None:
         with self._lock:
-            record = self._jobs[job_id]
+            record = self._jobs.get(job_id)
+            if record is None:
+                return
             record.status = JobStatus.COMPLETED
             record.completed_at = time.time()
             record.progress = 1.0
@@ -155,9 +171,23 @@ class JobStore:
             if record is not None:
                 record.combined_video_path = path
 
+    def set_video_storage_key(self, job_id: str, view: str, key: str) -> None:
+        with self._lock:
+            record = self._jobs.get(job_id)
+            if record is not None:
+                record.video_storage_keys[view] = key
+
+    def set_image_storage_key(self, job_id: str, view: str, key: str) -> None:
+        with self._lock:
+            record = self._jobs.get(job_id)
+            if record is not None:
+                record.image_storage_keys[view] = key
+
     def mark_failed(self, job_id: str, error: str) -> None:
         with self._lock:
-            record = self._jobs[job_id]
+            record = self._jobs.get(job_id)
+            if record is None:
+                return
             record.status = JobStatus.FAILED
             record.completed_at = time.time()
             record.error = error

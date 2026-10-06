@@ -28,3 +28,10 @@ examples/*.mp4
 
 .pytest_cache/
 .DS_Store
+data/*.db
+*.db
+data/live_recordings/
+data/jobs/
+
+# Frontend build output
+frontend/dist/

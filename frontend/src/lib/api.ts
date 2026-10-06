@@ -1,13 +1,45 @@
 import type {
+  ActivityLog,
+  ActivityDownloadResponse,
+  ActivityListResponse,
+  AdminOverviewStats,
+  AuthTokenResponse,
+  Device,
+  DeviceCreatePayload,
+  DeviceUpdatePayload,
   FeedResponse,
+  RecordingSummary,
+  RecordingStatusResponse,
   JobRecordResponse,
+  LiveAnalyticsResponse,
+  StreamProbeResult,
   SystemConfig,
   SystemHealth,
   SystemStatus,
+  User,
   WSEnvelope,
 } from '../types/api';
+import type { ImageUrlInfo } from '../types/api';
 
 const API_BASE = '/api';
+const TOKEN_KEY = 'cms_auth_token';
+
+export function getStoredToken(): string | null {
+  return localStorage.getItem(TOKEN_KEY);
+}
+
+export function setStoredToken(token: string): void {
+  localStorage.setItem(TOKEN_KEY, token);
+}
+
+export function removeStoredToken(): void {
+  localStorage.removeItem(TOKEN_KEY);
+}
+
+export function getAuthHeaders(token?: string | null): Record<string, string> {
+  const authToken = token || getStoredToken();
+  return authToken ? { Authorization: `Bearer ${authToken}` } : {};
+}
 
 export async function getHealth(): Promise<SystemHealth> {
   const res = await fetch(`${API_BASE}/health`);
@@ -27,12 +59,13 @@ export async function getConfig(): Promise<SystemConfig> {
   return res.json();
 }
 
-export async function analyzeImage(file: File): Promise<JobRecordResponse> {
+export async function analyzeImage(file: File, token?: string): Promise<JobRecordResponse> {
   const formData = new FormData();
   formData.append('image', file);
 
   const res = await fetch(`${API_BASE}/jobs/image`, {
     method: 'POST',
+    headers: { ...getAuthHeaders(token) },
     body: formData,
   });
 
@@ -44,12 +77,13 @@ export async function analyzeImage(file: File): Promise<JobRecordResponse> {
   return res.json();
 }
 
-export async function submitVideoJob(file: File): Promise<JobRecordResponse> {
+export async function submitVideoJob(file: File, token?: string): Promise<JobRecordResponse> {
   const formData = new FormData();
   formData.append('video', file);
 
   const res = await fetch(`${API_BASE}/jobs/video`, {
     method: 'POST',
+    headers: { ...getAuthHeaders(token) },
     body: formData,
   });
 
@@ -61,8 +95,10 @@ export async function submitVideoJob(file: File): Promise<JobRecordResponse> {
   return res.json();
 }
 
-export async function getJob(jobId: string): Promise<JobRecordResponse> {
-  const res = await fetch(`${API_BASE}/jobs/${jobId}`);
+export async function getJob(jobId: string, token?: string): Promise<JobRecordResponse> {
+  const res = await fetch(`${API_BASE}/jobs/${jobId}`, {
+    headers: { ...getAuthHeaders(token) },
+  });
   if (!res.ok) throw new Error(`Failed to fetch job ${jobId}`);
   return res.json();
 }
@@ -73,22 +109,85 @@ export type VideoView = 'detection' | 'heatmap' | 'combined';
 // (person boxes + stats panel), `heatmap` (real DM-Count density overlay,
 // no boxes), or `combined` (both together). Only valid once the job has
 // completed -- callers should check `job.status === 'completed'` first.
-export function getJobVideoUrl(jobId: string, view: VideoView = 'detection'): string {
-  return `${API_BASE}/jobs/${jobId}/video/${view}`;
+export function getJobVideoUrl(jobId: string, view: VideoView = 'detection', token?: string): string {
+  const authToken = token || getStoredToken();
+  const base = `${API_BASE}/jobs/${jobId}/video/${view}`;
+  return authToken ? `${base}?token=${encodeURIComponent(authToken)}` : base;
+}
+
+export interface VideoUrlInfo {
+  mode: 's3' | 'local';
+  view: VideoView;
+  url: string;
+  expires_in: number | null;
+  expires_at: number | null;
+  storage_key?: string;
+}
+
+export async function getJobVideoUrlInfo(jobId: string, view: VideoView = 'detection', token?: string): Promise<VideoUrlInfo> {
+  const authToken = token || getStoredToken();
+  const res = await fetch(`${API_BASE}/jobs/${jobId}/video/${view}/url`, {
+    headers: { ...getAuthHeaders(authToken) },
+  });
+  if (!res.ok) {
+    throw new Error(`Failed to get video URL info (${res.status})`);
+  }
+  const data: VideoUrlInfo = await res.json();
+  if (data.mode === 'local' && authToken && data.url) {
+    const sep = data.url.includes('?') ? '&' : '?';
+    data.url = `${data.url}${sep}token=${encodeURIComponent(authToken)}`;
+  }
+  return data;
+}
+
+export function getJobImageUrl(jobId: string, view: string = 'detection', token?: string): string {
+  const authToken = token || getStoredToken();
+  const base = `${API_BASE}/jobs/${jobId}/image/${view}`;
+  return authToken ? `${base}?token=${encodeURIComponent(authToken)}` : base;
+}
+
+export async function getJobImageUrlInfo(jobId: string, view: string = 'detection', token?: string): Promise<ImageUrlInfo> {
+  const authToken = token || getStoredToken();
+  const res = await fetch(`${API_BASE}/jobs/jobs/${jobId}/image/${view}/url`, {
+    headers: { ...getAuthHeaders(authToken) },
+  });
+  if (!res.ok) {
+    throw new Error(`Failed to get image URL info (${res.status})`);
+  }
+  const data: ImageUrlInfo = await res.json();
+  if (data.mode === 'local' && authToken && data.url) {
+    const sep = data.url.includes('?') ? '&' : '?';
+    data.url = `${data.url}${sep}token=${encodeURIComponent(authToken)}`;
+  }
+  return data;
+}
+
+export function getRecordingVideoUrl(sessionUid: string, token?: string): string {
+  const authToken = token || getStoredToken();
+  const base = `${API_BASE}/feeds/recordings/${sessionUid}/video`;
+  return authToken ? `${base}?token=${encodeURIComponent(authToken)}` : base;
 }
 
 export async function createFeed(
   sourceType: string = 'video',
   sourceUri: string = 'dashboard/static/uploads/077cc45b94_14968235_2160_3840_60fps.mp4',
-  loop: boolean = true
+  loop: boolean = true,
+  token?: string,
+  deviceId?: string,
+  deviceName?: string
 ): Promise<FeedResponse> {
   const res = await fetch(`${API_BASE}/feeds`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      ...getAuthHeaders(token),
+    },
     body: JSON.stringify({
       source_type: sourceType,
       source_uri: sourceUri,
       loop: loop,
+      device_id: deviceId,
+      device_name: deviceName,
     }),
   });
 
@@ -102,7 +201,8 @@ export async function createFeed(
 
 export async function uploadFeedVideo(
   file: File,
-  loop: boolean = true
+  loop: boolean = true,
+  token?: string
 ): Promise<FeedResponse> {
   const formData = new FormData();
   formData.append('video', file);
@@ -110,6 +210,7 @@ export async function uploadFeedVideo(
 
   const res = await fetch(`${API_BASE}/feeds/upload`, {
     method: 'POST',
+    headers: { ...getAuthHeaders(token) },
     body: formData,
   });
 
@@ -121,18 +222,63 @@ export async function uploadFeedVideo(
   return res.json();
 }
 
-export async function getFeed(feedId: string): Promise<FeedResponse> {
-  const res = await fetch(`${API_BASE}/feeds/${feedId}`);
+export async function listFeeds(token?: string): Promise<FeedResponse[]> {
+  const res = await fetch(`${API_BASE}/feeds`, {
+    headers: { ...getAuthHeaders(token) },
+  });
+  if (!res.ok) throw new Error('Failed to fetch feeds');
+  return res.json();
+}
+
+export async function getFeed(feedId: string, token?: string): Promise<FeedResponse> {
+  const res = await fetch(`${API_BASE}/feeds/${feedId}`, {
+    headers: { ...getAuthHeaders(token) },
+  });
   if (!res.ok) throw new Error(`Failed to fetch feed ${feedId}`);
   return res.json();
 }
 
-export async function stopFeed(feedId: string): Promise<FeedResponse> {
+export async function stopFeed(feedId: string, token?: string): Promise<FeedResponse> {
   const res = await fetch(`${API_BASE}/feeds/${feedId}/stop`, {
     method: 'POST',
+    headers: { ...getAuthHeaders(token) },
   });
 
   if (!res.ok) throw new Error(`Failed to stop feed ${feedId}`);
+  return res.json();
+}
+
+export async function startFeedRecording(feedId: string, token?: string): Promise<{ status: string; recording: boolean; session_uid: string; started_at: number; message: string }> {
+  const res = await fetch(`${API_BASE}/feeds/${feedId}/record/start`, {
+    method: 'POST',
+    headers: { ...getAuthHeaders(token) },
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || err.message || `Failed to start recording (${res.status})`);
+  }
+  return res.json();
+}
+
+export async function stopFeedRecording(feedId: string, token?: string): Promise<{ status: string; recording: boolean; summary: RecordingSummary; message: string }> {
+  const res = await fetch(`${API_BASE}/feeds/${feedId}/record/stop`, {
+    method: 'POST',
+    headers: { ...getAuthHeaders(token) },
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || err.message || `Failed to stop recording (${res.status})`);
+  }
+  return res.json();
+}
+
+export async function getFeedRecordingStatus(feedId: string, token?: string): Promise<RecordingStatusResponse> {
+  const res = await fetch(`${API_BASE}/feeds/${feedId}/record/status`, {
+    headers: { ...getAuthHeaders(token) },
+  });
+  if (!res.ok) {
+    throw new Error(`Failed to get recording status (${res.status})`);
+  }
   return res.json();
 }
 
@@ -144,7 +290,10 @@ export function connectWebSocket(
 ): WebSocket {
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   const host = window.location.host;
-  const wsUrl = `${protocol}//${host}${path}`;
+  const token = getStoredToken();
+  const sep = path.includes('?') ? '&' : '?';
+  const query = token ? `${sep}token=${encodeURIComponent(token)}` : '';
+  const wsUrl = `${protocol}//${host}${path}${query}`;
 
   const ws = new WebSocket(wsUrl);
 
@@ -172,3 +321,338 @@ export function connectWebSocket(
 
   return ws;
 }
+
+/* =========================================================================
+   Authentication & Admin API
+   ========================================================================= */
+
+
+
+export async function loginUser(credentials: { username: string; password: string }): Promise<AuthTokenResponse> {
+  const res = await fetch(`${API_BASE}/auth/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(credentials),
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || 'Login failed');
+  }
+
+  const data: AuthTokenResponse = await res.json();
+  setStoredToken(data.access_token);
+  return data;
+}
+
+
+export async function getCurrentUser(token?: string): Promise<User> {
+  const authToken = token || getStoredToken();
+  if (!authToken) throw new Error('No authentication token found');
+
+  const res = await fetch(`${API_BASE}/auth/me`, {
+    headers: { Authorization: `Bearer ${authToken}` },
+  });
+
+  if (!res.ok) {
+    throw new Error('Failed to authenticate session');
+  }
+
+  return res.json();
+}
+
+export async function getAdminStats(token?: string): Promise<AdminOverviewStats> {
+  const authToken = token || getStoredToken();
+  const res = await fetch(`${API_BASE}/admin/stats`, {
+    headers: { Authorization: `Bearer ${authToken}` },
+  });
+
+  if (!res.ok) throw new Error('Failed to load admin stats');
+  return res.json();
+}
+
+export async function getAdminUsers(token?: string): Promise<User[]> {
+  const authToken = token || getStoredToken();
+  const res = await fetch(`${API_BASE}/admin/users`, {
+    headers: { Authorization: `Bearer ${authToken}` },
+  });
+
+  if (!res.ok) throw new Error('Failed to load user directory');
+  return res.json();
+}
+
+export async function createAdminUser(
+  data: { username: string; email: string; password: string; full_name?: string; role?: string },
+  token?: string
+): Promise<User> {
+  const authToken = token || getStoredToken();
+  const res = await fetch(`${API_BASE}/admin/users`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${authToken}`,
+    },
+    body: JSON.stringify(data),
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || 'Failed to create user');
+  }
+
+  return res.json();
+}
+
+export async function deleteAdminUser(userId: number, token?: string): Promise<void> {
+  const authToken = token || getStoredToken();
+  const res = await fetch(`${API_BASE}/admin/users/${userId}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${authToken}` },
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || 'Failed to delete user');
+  }
+}
+
+export async function updateAdminUser(
+  userId: number,
+  updates: { is_active?: boolean; role?: string },
+  token?: string
+): Promise<User> {
+  const authToken = token || getStoredToken();
+  const res = await fetch(`${API_BASE}/admin/users/${userId}`, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${authToken}`,
+    },
+    body: JSON.stringify(updates),
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || 'Failed to update user');
+  }
+
+  return res.json();
+}
+
+export async function getAdminActivities(limit = 50, token?: string): Promise<ActivityLog[]> {
+  const authToken = token || getStoredToken();
+  const res = await fetch(`${API_BASE}/admin/activities?limit=${limit}`, {
+    headers: { Authorization: `Bearer ${authToken}` },
+  });
+
+  if (!res.ok) throw new Error('Failed to load system activities');
+  return res.json();
+}
+
+export interface ActivityQueryParams {
+  limit?: number;
+  offset?: number;
+  category?: string;
+  action?: string;
+  severity?: string;
+  has_download?: boolean;
+  username?: string;
+}
+
+export async function getActivities(
+  params: ActivityQueryParams = {},
+  token?: string
+): Promise<ActivityListResponse> {
+  const authToken = token || getStoredToken();
+  const query = new URLSearchParams();
+  if (params.limit !== undefined) query.set('limit', String(params.limit));
+  if (params.offset !== undefined) query.set('offset', String(params.offset));
+  if (params.category) query.set('category', params.category);
+  if (params.action) query.set('action', params.action);
+  if (params.severity) query.set('severity', params.severity);
+  if (params.has_download !== undefined) query.set('has_download', String(params.has_download));
+  if (params.username) query.set('username', params.username);
+
+  const queryString = query.toString();
+  const res = await fetch(`${API_BASE}/activity${queryString ? `?${queryString}` : ''}`, {
+    headers: { Authorization: `Bearer ${authToken}` },
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || err.error?.message || 'Failed to load activity log');
+  }
+
+  return res.json();
+}
+
+export class ActivityDownloadError extends Error {
+  status: number;
+
+  constructor(status: number, message: string) {
+    super(message);
+    this.name = 'ActivityDownloadError';
+    this.status = status;
+  }
+}
+
+export async function requestActivityDownload(
+  activityId: number,
+  view: string,
+  token?: string
+): Promise<ActivityDownloadResponse> {
+  const authToken = token || getStoredToken();
+  const res = await fetch(
+    `${API_BASE}/activity/${activityId}/download?view=${encodeURIComponent(view)}`,
+    { headers: { Authorization: `Bearer ${authToken}` } }
+  );
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new ActivityDownloadError(
+      res.status,
+      err.detail || err.error?.message || 'Failed to prepare download'
+    );
+  }
+
+  return res.json();
+}
+
+export async function getDevices(
+  filters?: { status?: string; stream_type?: string; search?: string },
+  token?: string
+): Promise<Device[]> {
+  const authToken = token || getStoredToken();
+  const params = new URLSearchParams();
+  if (filters?.status && filters.status !== 'ALL') params.append('status', filters.status);
+  if (filters?.stream_type && filters.stream_type !== 'ALL') params.append('stream_type', filters.stream_type);
+  if (filters?.search) params.append('search', filters.search);
+
+  const query = params.toString() ? `?${params.toString()}` : '';
+  const res = await fetch(`${API_BASE}/devices${query}`, {
+    headers: { Authorization: `Bearer ${authToken}` },
+  });
+
+  if (!res.ok) throw new Error('Failed to fetch devices');
+  return res.json();
+}
+
+export async function getDevice(deviceId: string, token?: string): Promise<Device> {
+  const authToken = token || getStoredToken();
+  const res = await fetch(`${API_BASE}/devices/${encodeURIComponent(deviceId)}`, {
+    headers: { Authorization: `Bearer ${authToken}` },
+  });
+
+  if (!res.ok) throw new Error(`Device ${deviceId} not found`);
+  return res.json();
+}
+
+export async function createDevice(payload: DeviceCreatePayload, token?: string): Promise<Device> {
+  const authToken = token || getStoredToken();
+  const res = await fetch(`${API_BASE}/devices`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${authToken}`,
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || 'Failed to enroll device');
+  }
+
+  return res.json();
+}
+
+export async function updateDevice(
+  deviceId: string,
+  payload: DeviceUpdatePayload,
+  token?: string
+): Promise<Device> {
+  const authToken = token || getStoredToken();
+  const res = await fetch(`${API_BASE}/devices/${encodeURIComponent(deviceId)}`, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${authToken}`,
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || 'Failed to update device');
+  }
+
+  return res.json();
+}
+
+export async function deleteDevice(deviceId: string, token?: string): Promise<{ message: string; device_id: string }> {
+  const authToken = token || getStoredToken();
+  const res = await fetch(`${API_BASE}/devices/${encodeURIComponent(deviceId)}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${authToken}` },
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || 'Failed to delete device');
+  }
+
+  return res.json();
+}
+
+export async function probeStream(
+  payload: { stream_url: string; stream_type: string },
+  token?: string
+): Promise<StreamProbeResult> {
+  const authToken = token || getStoredToken();
+  const res = await fetch(`${API_BASE}/devices/probe`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${authToken}`,
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || 'Stream probe failed');
+  }
+
+  return res.json();
+}
+
+export async function testDevice(deviceId: string, token?: string): Promise<StreamProbeResult> {
+  const authToken = token || getStoredToken();
+  const res = await fetch(`${API_BASE}/devices/${encodeURIComponent(deviceId)}/test`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${authToken}` },
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || 'Device test failed');
+  }
+
+  return res.json();
+}
+
+export async function getLiveAnalytics(token?: string): Promise<LiveAnalyticsResponse> {
+  const authToken = token || getStoredToken();
+  const res = await fetch(`${API_BASE}/analytics/live`, {
+    headers: { Authorization: `Bearer ${authToken}` },
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || 'Failed to load live analytics');
+  }
+
+  return res.json();
+}
+
+

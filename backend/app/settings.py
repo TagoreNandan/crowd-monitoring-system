@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -24,9 +25,35 @@ class Settings(BaseSettings):
     # Comma-separated list of allowed CORS origins. Defaults to the two
     # ports Vite's dev server commonly uses; production origins must be
     # supplied via CROWD_MONITORING_BACKEND_CORS_ALLOW_ORIGINS, never hardcoded.
-    cors_allow_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
+    cors_allow_origins: str = "http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000,http://127.0.0.1:3000"
 
     log_level: str = "INFO"
+
+    # Authentication & Initial Admin configuration
+    jwt_secret_key: str = "cms-crowd-monitoring-secure-key-2026-default"
+    jwt_expire_minutes: int = 10080  # 7 days
+    admin_username: str = "admin"
+    admin_password: str = "admin123"
+    admin_email: str = "admin@cms.local"
+
+    @model_validator(mode="after")
+    def validate_production_secrets(self) -> Settings:
+        is_dev = self.environment.lower() in ("development", "dev", "test", "testing")
+        insecure_jwt = self.jwt_secret_key == "cms-crowd-monitoring-secure-key-2026-default" or len(self.jwt_secret_key) < 16
+        insecure_admin = self.admin_password == "admin123"
+
+        if not is_dev:
+            if insecure_jwt:
+                raise ValueError(
+                    "In non-development environments, a secure, non-default CROWD_MONITORING_BACKEND_JWT_SECRET_KEY "
+                    "(at least 16 characters) must be configured."
+                )
+            if insecure_admin:
+                raise ValueError(
+                    "In non-development environments, default admin_password ('admin123') is forbidden. "
+                    "Set a strong CROWD_MONITORING_BACKEND_ADMIN_PASSWORD in your environment."
+                )
+        return self
 
     # How long an in-memory job record (and its temp working file, if any)
     # survives before being evicted. There is no persistent store in this
@@ -93,6 +120,10 @@ class Settings(BaseSettings):
     # independent of `person_detection_imgsz`: the detector always sees a
     # full/high-resolution frame regardless of what the browser is shown.
     feed_frame_max_side: int = 960
+
+    # Nominal FPS for live-feed detection recordings when STORAGE_BACKEND=s3.
+    # Heatmap and combined views are saved as timestamped JPEG snapshots.
+    live_feed_recording_fps: float = 8.0
 
     @property
     def cors_origin_list(self) -> list[str]:

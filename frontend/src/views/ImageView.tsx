@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
-import { Upload, RefreshCw, AlertCircle, Sparkles } from 'lucide-react';
-import { analyzeImage } from '../lib/api';
+import React, { useState, useRef, useEffect } from 'react';
+import { Upload, RefreshCw, AlertCircle, Sparkles, Cloud, Download } from 'lucide-react';
+import { analyzeImage, getJobImageUrlInfo } from '../lib/api';
+import { downloadFromSrc } from '../lib/download';
 import type { JobRecordResponse } from '../types/api';
 import { Badge } from '../components/ui/Badge';
 import { Button } from '../components/ui/Button';
@@ -16,6 +17,15 @@ const TABS: { key: Tab; label: string }[] = [
   { key: 'combined', label: 'Combined' },
 ];
 
+const DOWNLOAD_VIEW_NAMES: Record<Tab, string> = {
+  original: 'original',
+  detection: 'person-detection',
+  density: 'density-map',
+  heatmap: 'heatmap-overlay',
+  localization: 'localization',
+  combined: 'combined',
+};
+
 export const ImageView: React.FC = () => {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
@@ -23,10 +33,26 @@ export const ImageView: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [jobResult, setJobResult] = useState<JobRecordResponse | null>(null);
   const [activeTab, setActiveTab] = useState<Tab>('original');
+  const [downloading, setDownloading] = useState(false);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
+  const previewUrlRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (previewUrlRef.current) {
+        URL.revokeObjectURL(previewUrlRef.current);
+      }
+    };
+  }, []);
 
   const resetSelection = (file: File) => {
+    if (previewUrlRef.current) {
+      URL.revokeObjectURL(previewUrlRef.current);
+    }
+    const newUrl = URL.createObjectURL(file);
+    previewUrlRef.current = newUrl;
     setSelectedFile(file);
-    setPreviewUrl(URL.createObjectURL(file));
+    setPreviewUrl(newUrl);
     setJobResult(null);
     setError(null);
     setActiveTab('original');
@@ -84,11 +110,43 @@ export const ImageView: React.FC = () => {
   const tabImageSrc = (): string | null => {
     if (!previewUrl) return null;
     if (activeTab === 'original') return previewUrl;
+    if (result?.s3_urls && result.s3_urls[activeTab]) {
+      return result.s3_urls[activeTab];
+    }
     if (!images) return null;
     return images[activeTab] ?? null;
   };
 
   const currentSrc = tabImageSrc();
+
+  const getDownloadFilename = (tab: Tab): string => {
+    const originalName = selectedFile?.name || 'image.jpg';
+    const extensionIndex = originalName.lastIndexOf('.');
+    const stem = extensionIndex > 0 ? originalName.slice(0, extensionIndex) : originalName;
+    const extension = tab === 'original'
+      ? extensionIndex > 0 ? originalName.slice(extensionIndex + 1) : 'jpg'
+      : 'jpg';
+    return `${stem}_${DOWNLOAD_VIEW_NAMES[tab]}.${extension}`;
+  };
+
+  const handleDownload = async () => {
+    if (!selectedFile || !currentSrc || downloading) return;
+    const tab = activeTab;
+    setDownloading(true);
+    setDownloadError(null);
+    try {
+      let downloadSrc = currentSrc;
+      if (tab !== 'original' && result?.s3_urls?.[tab] && jobResult?.job_id) {
+        const urlInfo = await getJobImageUrlInfo(jobResult.job_id, tab);
+        downloadSrc = urlInfo.url;
+      }
+      await downloadFromSrc(downloadSrc, getDownloadFilename(tab));
+    } catch (err: unknown) {
+      setDownloadError(err instanceof Error ? err.message : 'Failed to download the current image view.');
+    } finally {
+      setDownloading(false);
+    }
+  };
 
   return (
     <div className="p-8 max-w-6xl mx-auto space-y-8">
@@ -97,7 +155,7 @@ export const ImageView: React.FC = () => {
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-zinc-100">Image Analysis</h1>
           <p className="text-sm text-zinc-400 mt-0.5">
-            Person detection (YOLOv8) + dense crowd estimation (DM-Count) with separate visual outputs.
+            Person detection + dense crowd estimation with separate visual outputs.
           </p>
         </div>
 
@@ -130,10 +188,10 @@ export const ImageView: React.FC = () => {
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
           <div className="lg:col-span-8 space-y-4">
-            {jobResult && (
-              <div className="flex items-center gap-1 border-b border-zinc-800 pb-2 text-xs flex-wrap">
+            <div className="flex items-center justify-between border-b border-zinc-800 pb-2 text-xs flex-wrap gap-2">
+              <div className="flex items-center gap-1 flex-wrap">
                 {TABS.map((tab) => {
-                  const unavailable = tab.key !== 'original' && !images?.[tab.key];
+                  const unavailable = tab.key !== 'original' && (!jobResult || (!images?.[tab.key] && !result?.s3_urls?.[tab.key]));
                   return (
                     <button
                       key={tab.key}
@@ -153,6 +211,31 @@ export const ImageView: React.FC = () => {
                   );
                 })}
               </div>
+              <div className="ml-auto flex items-center gap-2">
+                {result?.s3_urls && activeTab !== 'original' && (
+                  <span className="flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-emerald-950/70 border border-emerald-800/80 text-emerald-400 font-mono text-[11px] font-medium">
+                    <Cloud className="w-3 h-3 text-emerald-400 animate-pulse" />
+                    <span>S3 Pre-signed URL</span>
+                  </span>
+                )}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleDownload}
+                  disabled={!currentSrc || downloading}
+                  isLoading={downloading}
+                  title="Download current view"
+                >
+                  {!downloading && <Download className="w-3.5 h-3.5" />}
+                  Download
+                </Button>
+              </div>
+            </div>
+            {downloadError && (
+              <div className="mt-2 flex items-center gap-2 rounded-md border border-rose-800/60 bg-rose-950/30 px-3 py-2 text-xs text-rose-300">
+                <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                <span>{downloadError}</span>
+              </div>
             )}
 
             <div className="relative rounded-lg border border-zinc-800 bg-black min-h-[420px] flex items-center justify-center overflow-hidden">
@@ -169,7 +252,7 @@ export const ImageView: React.FC = () => {
               {loading && (
                 <div className="absolute inset-0 bg-zinc-950/80 backdrop-blur-xs flex flex-col items-center justify-center gap-2">
                   <RefreshCw className="w-6 h-6 text-zinc-400 animate-spin" />
-                  <span className="text-xs text-zinc-400 font-mono">Running YOLOv8 + DM-Count inference...</span>
+                  <span className="text-xs text-zinc-400 font-mono">Running crowd inference...</span>
                 </div>
               )}
             </div>
@@ -190,7 +273,7 @@ export const ImageView: React.FC = () => {
               </div>
             </div>
             <p className="text-[11px] text-zinc-500 -mt-4">
-              Visible People (YOLOv8 boxes) and Estimated Crowd (DM-Count density) are separate signals — a dense,
+              Visible People (optical boxes) and Estimated Crowd (spatial density) are separate signals — a dense,
               occluded crowd can validly show visible ≪ estimated.
             </p>
 
@@ -208,7 +291,7 @@ export const ImageView: React.FC = () => {
                   label="Detection Confidence"
                   value={avgConfidence !== null ? `${(avgConfidence * 100).toFixed(0)}%` : hasDetector ? '—' : 'N/A'}
                 />
-                <Row label="DM-Count Latency" value={result ? `${result.latency_ms} ms` : '—'} />
+                <Row label="Density Latency" value={result ? `${result.latency_ms} ms` : '—'} />
                 <Row
                   label="Detector Latency"
                   value={result?.detector_latency_ms != null ? `${result.detector_latency_ms.toFixed(0)} ms` : 'N/A'}

@@ -14,7 +14,41 @@ import subprocess
 from pathlib import Path
 from typing import Optional
 
+import tempfile
+import cv2
+
 logger = logging.getLogger(__name__)
+
+_CACHED_FOURCC: Optional[int] = None
+
+
+def get_preferred_video_fourcc() -> int:
+    """Return the best available fourcc for browser playback (avc1/H264 preferred, mp4v fallback)."""
+    global _CACHED_FOURCC
+    if _CACHED_FOURCC is not None:
+        return _CACHED_FOURCC
+
+    for code in ("avc1", "H264", "X264", "mp4v"):
+        try:
+            fourcc = cv2.VideoWriter.fourcc(*code)
+            with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as tmp:
+                tmp_path = tmp.name
+            writer = cv2.VideoWriter(tmp_path, fourcc, 10.0, (64, 64))
+            opened = writer.isOpened()
+            writer.release()
+            try:
+                Path(tmp_path).unlink(missing_ok=True)
+            except Exception:
+                pass
+            if opened:
+                logger.info("Selected video fourcc codec: %s", code)
+                _CACHED_FOURCC = fourcc
+                return fourcc
+        except Exception:
+            continue
+
+    _CACHED_FOURCC = cv2.VideoWriter.fourcc(*"mp4v")
+    return _CACHED_FOURCC
 
 
 def is_ffmpeg_available() -> bool:

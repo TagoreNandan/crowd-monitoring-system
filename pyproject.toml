@@ -10,3 +10,8 @@ requires-python = ">=3.9"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.pyright]
+include = ["src", "backend"]
+extraPaths = [".", "src"]
+

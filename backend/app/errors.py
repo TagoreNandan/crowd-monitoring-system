@@ -17,6 +17,7 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 logger = logging.getLogger(__name__)
 
@@ -65,6 +66,14 @@ class VideoNotAvailableError(ApiError):
 def install_exception_handlers(app: FastAPI) -> None:
     @app.exception_handler(ApiError)
     async def _handle_api_error(request: Request, exc: ApiError) -> JSONResponse:
+        logger.warning(
+            "API error on %s %s [%d %s]: %s",
+            request.method,
+            request.url.path,
+            exc.status_code,
+            exc.code,
+            exc.message,
+        )
         return JSONResponse(
             status_code=exc.status_code,
             content=ErrorResponse(error=ErrorDetail(code=exc.code, message=exc.message)).model_dump(),
@@ -77,6 +86,23 @@ def install_exception_handlers(app: FastAPI) -> None:
             content=ErrorResponse(
                 error=ErrorDetail(code="validation_error", message="Request validation failed."),
             ).model_dump(),
+        )
+
+    @app.exception_handler(StarletteHTTPException)
+    async def _handle_http_exception(request: Request, exc: StarletteHTTPException) -> JSONResponse:
+        logger.warning(
+            "HTTP exception on %s %s [%d]: %s",
+            request.method,
+            request.url.path,
+            exc.status_code,
+            exc.detail,
+        )
+        return JSONResponse(
+            status_code=exc.status_code,
+            content=ErrorResponse(
+                error=ErrorDetail(code=f"http_{exc.status_code}", message=exc.detail),
+            ).model_dump(),
+            headers=exc.headers,
         )
 
     @app.exception_handler(Exception)

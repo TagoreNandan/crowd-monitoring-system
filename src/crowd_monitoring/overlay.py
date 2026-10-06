@@ -24,10 +24,10 @@ def draw_person_boxes(frame_bgr: np.ndarray, detections: Iterable[Any]) -> np.nd
     ref_dim = min(h, w)
     factor = max(0.5, ref_dim / 720.0)
 
-    box_thickness = max(1, int(round(2 * factor)))
-    poly_thickness = max(1, int(round(2 * factor)))
+    box_thickness = max(1, round(2 * factor))
+    poly_thickness = max(1, round(2 * factor))
     font_scale = max(0.35, 0.45 * factor)
-    label_thickness = max(1, int(round(1 * factor)))
+    label_thickness = max(1, round(1 * factor))
 
     for det in detections:
         x1, y1, x2, y2 = det.x1, det.y1, det.x2, det.y2
@@ -42,9 +42,9 @@ def draw_person_boxes(frame_bgr: np.ndarray, detections: Iterable[Any]) -> np.nd
         else:
             label = f"{det.confidence * 100:.0f}%"
 
-        offset_above = max(4, int(round(6 * factor)))
-        offset_below = max(12, int(round(14 * factor)))
-        min_top = max(8, int(round(10 * factor)))
+        offset_above = max(4, round(6 * factor))
+        offset_below = max(12, round(14 * factor))
+        min_top = max(8, round(10 * factor))
         label_y = y1 - offset_above if y1 - offset_above > min_top else y1 + offset_below
         cv2.putText(out, label, (x1, label_y), cv2.FONT_HERSHEY_SIMPLEX, font_scale, _BOX_COLOR, label_thickness, cv2.LINE_AA)
     return out
@@ -117,12 +117,12 @@ def draw_stats_panel(
     factor = max(0.5, ref_dim / 720.0)
 
     font_scale = max(0.40, 0.55 * factor)
-    outline_thickness = max(2, int(round(3 * factor)))
-    text_thickness = max(1, int(round(1.5 * factor)))
+    outline_thickness = max(2, round(3 * factor))
+    text_thickness = max(1, round(1.5 * factor))
 
-    start_x = max(8, int(round(12 * factor)))
-    start_y = max(20, int(round(28 * factor)))
-    y_step = max(18, int(round(26 * factor)))
+    start_x = max(8, round(12 * factor))
+    start_y = max(20, round(28 * factor))
+    y_step = max(18, round(26 * factor))
 
     total_frames_text = str(total_frames) if total_frames is not None else "?"
     total_duration_text = f"{total_duration_s:.1f}s" if total_duration_s is not None else "?"
@@ -154,7 +154,7 @@ def draw_stats_panel(
 
 def render_video_overlay(
     frame_bgr: np.ndarray,
-    detections: Iterable[PersonDetection],
+    detections: Iterable[Any],
     **stats_kwargs,
 ) -> np.ndarray:
     """Boxes first, then the stats panel on top."""

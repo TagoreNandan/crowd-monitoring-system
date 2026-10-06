@@ -41,7 +41,17 @@ export interface ImageAnalysisResult {
   clusters: ClusterSummary;
   risk: RiskSummary;
   images?: ImageVisualizations | null;
+  s3_urls?: Record<string, string> | null;
   warnings?: string[];
+}
+
+export interface ImageUrlInfo {
+  mode: 's3' | 'local';
+  view: string;
+  url: string;
+  expires_in: number | null;
+  expires_at: number | null;
+  storage_key?: string;
 }
 
 export interface VideoFrameMetrics {
@@ -115,9 +125,30 @@ export interface FeedResponse {
   source_type: string;
   status: 'starting' | 'running' | 'stopping' | 'stopped' | 'failed';
   frames_produced: number;
+  is_recording?: boolean;
   latest_metrics?: VideoFrameMetrics | null;
   error?: string | null;
   description?: string;
+  device_id?: string | null;
+  device_name?: string | null;
+}
+
+export interface RecordingSummary {
+  feed_id: string;
+  session_uid: string;
+  frame_count: number;
+  duration_s: number;
+  s3_key?: string | null;
+  download_url?: string | null;
+  is_finalized: boolean;
+}
+
+export interface RecordingStatusResponse {
+  feed_id: string;
+  recording: boolean;
+  session_uid?: string | null;
+  duration_s: number;
+  frames: number;
 }
 
 export interface SystemHealth {
@@ -154,3 +185,179 @@ export interface WSEnvelope {
   timestamp?: number;
   data: any;
 }
+
+export interface User {
+  id: number;
+  username: string;
+  email: string;
+  full_name?: string;
+  role: 'admin' | 'user';
+  is_active: boolean;
+  created_at: string;
+  last_login?: string | null;
+}
+
+export interface AuthTokenResponse {
+  access_token: string;
+  token_type: string;
+  username: string;
+  role: 'admin' | 'user';
+  full_name?: string;
+}
+
+export interface ActivityLog {
+  id: number;
+  user_id?: number | null;
+  username: string;
+  action: string;
+  category: string;
+  details?: string;
+  severity: 'INFO' | 'WARNING' | 'CRITICAL';
+  timestamp: string;
+}
+
+export interface ActivityListItem {
+  id: number;
+  username: string;
+  action: string;
+  category: string;
+  details?: string | null;
+  severity: 'INFO' | 'WARNING' | 'CRITICAL' | string;
+  timestamp: string;
+  job_id?: string | null;
+  job_type?: string | null;
+  has_download: boolean;
+  available_views: string[];
+}
+
+export interface ActivityListResponse {
+  items: ActivityListItem[];
+  total: number;
+}
+
+export interface ActivityDownloadResponse {
+  mode: 's3' | 'local';
+  url: string;
+  expires_in: number | null;
+  expires_at: number | null;
+  filename: string;
+  view: string;
+}
+
+export interface AdminOverviewStats {
+  total_users: number;
+  active_users: number;
+  admin_users: number;
+  total_activities: number;
+  database_engine?: string;
+  database_status?: string;
+  recent_activities: ActivityLog[];
+}
+
+export interface Device {
+  id: number;
+  device_id: string;
+  name: string;
+  description?: string;
+  location: string;
+  stream_type: 'RTSP' | 'WEBCAM' | 'HTTP_HLS' | 'VIDEO_FILE' | 'YOUTUBE' | string;
+  stream_url: string;
+  status: 'ONLINE' | 'STANDBY' | 'OFFLINE' | 'MAINTENANCE' | 'ERROR' | string;
+  fps?: number | null;
+  resolution?: string;
+  created_by?: number | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DeviceCreatePayload {
+  device_id: string;
+  name: string;
+  description?: string;
+  location: string;
+  stream_type: string;
+  stream_url: string;
+  status?: string;
+  fps?: number | null;
+  resolution?: string;
+}
+
+export interface DeviceUpdatePayload {
+  name?: string;
+  description?: string;
+  location?: string;
+  stream_type?: string;
+  stream_url?: string;
+  status?: string;
+  fps?: number | null;
+  resolution?: string;
+}
+
+export interface StreamProbeResult {
+  is_reachable: boolean;
+  resolution?: string | null;
+  fps?: number | null;
+  latency_ms?: number | null;
+  error?: string | null;
+}
+
+export interface StreamAnalyticsSnapshot {
+  feed_id: string;
+  device_id?: string | null;
+  camera_name: string;
+  location: string;
+  status: string;
+  is_live: boolean;
+  estimated_count: number;
+  visible_count?: number | null;
+  peak_count: number;
+  risk_status: string;
+  risk_score: number;
+  fps?: number | null;
+  latency_ms?: number | null;
+  frame_jpeg?: string | null;
+  heatmap_jpeg?: string | null;
+  combined_jpeg?: string | null;
+}
+
+export interface ZoneDistributionMetric {
+  zone_name: string;
+  camera_count: number;
+  crowd_count: number;
+  risk_status: string;
+  density_percent: number;
+}
+
+export interface TimelineDataPoint {
+  timestamp: string;
+  total_crowd: number;
+  visible_count: number;
+  active_streams: number;
+}
+
+export interface AnalyticsAlert {
+  id: string;
+  timestamp: string;
+  zone: string;
+  camera_name: string;
+  severity: 'INFO' | 'WARNING' | 'CRITICAL';
+  message: string;
+  crowd_count: number;
+}
+
+export interface LiveAnalyticsResponse {
+  total_crowd: number;
+  total_visible: number;
+  peak_crowd: number;
+  fleet_risk_status: string;
+  fleet_risk_score: number;
+  active_cameras_count: number;
+  total_cameras_count: number;
+  streams: StreamAnalyticsSnapshot[];
+  zones: ZoneDistributionMetric[];
+  timeline: TimelineDataPoint[];
+  recent_alerts: AnalyticsAlert[];
+  updated_at: string;
+}
+
+

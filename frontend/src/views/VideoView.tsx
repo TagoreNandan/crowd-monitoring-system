@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { Video as VideoIcon, Play, RefreshCw, AlertCircle, Eye, Users } from 'lucide-react';
-import { submitVideoJob, getJob, connectWebSocket, getJobVideoUrl, type VideoView as VideoViewMode } from '../lib/api';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { Video as VideoIcon, Play, RefreshCw, AlertCircle, Eye, Users, Cloud } from 'lucide-react';
+import { submitVideoJob, getJob, connectWebSocket, getJobVideoUrl, getJobVideoUrlInfo, type VideoView as VideoViewMode, type VideoUrlInfo } from '../lib/api';
 import type { JobRecordResponse, VideoFrameMetrics, WSEnvelope } from '../types/api';
 import { Badge } from '../components/ui/Badge';
 import { Button } from '../components/ui/Button';
@@ -25,25 +25,87 @@ export const VideoView: React.FC = () => {
   const [livePreview, setLivePreview] = useState<string | null>(null);
   const [liveHeatmapPreview, setLiveHeatmapPreview] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<LocalViewMode>('detection');
+  const [activeStreamInfo, setActiveStreamInfo] = useState<VideoUrlInfo | null>(null);
+  const [activeStreamUrl, setActiveStreamUrl] = useState<string | null>(null);
 
   const wsRef = useRef<WebSocket | null>(null);
   const pollTimerRef = useRef<any>(null);
+  const renewalTimerRef = useRef<any>(null);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const videoObjectUrlRef = useRef<string | null>(null);
+
+  const refreshStream = useCallback(async (jobId: string, mode: VideoViewMode, keepPosition = false) => {
+    try {
+      const info = await getJobVideoUrlInfo(jobId, mode);
+      setActiveStreamInfo(info);
+      const currentTime = videoRef.current?.currentTime || 0;
+      const wasPlaying = videoRef.current ? !videoRef.current.paused : false;
+
+      setActiveStreamUrl(info.url);
+
+      if (keepPosition && videoRef.current) {
+        videoRef.current.currentTime = currentTime;
+        if (wasPlaying) videoRef.current.play().catch(() => {});
+      }
+
+      // Schedule proactive renewal before token TTL expires (e.g. 45s before 300s TTL)
+      if (renewalTimerRef.current) clearTimeout(renewalTimerRef.current);
+      if (info.mode === 's3' && info.expires_in) {
+        const delayMs = Math.max((info.expires_in - 45) * 1000, 15000);
+        renewalTimerRef.current = setTimeout(() => {
+          refreshStream(jobId, mode, true);
+        }, delayMs);
+      }
+    } catch (err) {
+      console.error('Failed to get video URL info:', err);
+      setActiveStreamUrl(getJobVideoUrl(jobId, mode));
+    }
+  }, []);
+
+  // When job completes or view mode switches, obtain streaming URL
+  useEffect(() => {
+    if (job?.status === 'completed' && viewMode !== 'original') {
+      refreshStream(job.job_id, viewMode as VideoViewMode, false);
+    }
+    return () => {
+      if (renewalTimerRef.current) clearTimeout(renewalTimerRef.current);
+    };
+  }, [job?.status, job?.job_id, viewMode, refreshStream]);
+
+  // Video error recovery handler (handles token expiration during idle/pause)
+  const handleVideoError = () => {
+    if (job?.status === 'completed' && viewMode !== 'original') {
+      console.warn('Video stream error or token expired. Auto-renewing session...');
+      refreshStream(job.job_id, viewMode as VideoViewMode, true);
+    }
+  };
 
   useEffect(() => {
     return () => {
       if (wsRef.current) wsRef.current.close();
       if (pollTimerRef.current) clearInterval(pollTimerRef.current);
+      if (renewalTimerRef.current) clearTimeout(renewalTimerRef.current);
+      if (videoObjectUrlRef.current) {
+        URL.revokeObjectURL(videoObjectUrlRef.current);
+      }
     };
   }, []);
 
   const resetSelection = (file: File) => {
+    if (videoObjectUrlRef.current) {
+      URL.revokeObjectURL(videoObjectUrlRef.current);
+    }
+    const newUrl = URL.createObjectURL(file);
+    videoObjectUrlRef.current = newUrl;
     setSelectedFile(file);
-    setVideoUrl(URL.createObjectURL(file));
+    setVideoUrl(newUrl);
     setJob(null);
     setMetrics(null);
     setLivePreview(null);
     setLiveHeatmapPreview(null);
     setViewMode('detection');
+    setActiveStreamInfo(null);
+    setActiveStreamUrl(null);
     setError(null);
   };
 
@@ -163,20 +225,36 @@ export const VideoView: React.FC = () => {
         {/* Left Column: Hero Video Viewport */}
         <div className="lg:col-span-8 space-y-4">
           {videoUrl && (
-            <div className="flex items-center gap-1 border-b border-zinc-800 pb-2 text-xs">
-              {VIEW_TABS.map((tab) => (
-                <button
-                  key={tab.key}
-                  onClick={() => setViewMode(tab.key)}
-                  className={`px-3 py-1 rounded-md transition-colors ${
-                    viewMode === tab.key
-                      ? 'bg-zinc-900 text-zinc-100 border border-zinc-800 font-medium'
-                      : 'text-zinc-400 hover:text-zinc-200'
-                  }`}
-                >
-                  {tab.label}
-                </button>
-              ))}
+            <div className="flex items-center justify-between border-b border-zinc-800 pb-2 text-xs">
+              <div className="flex items-center gap-1">
+                {VIEW_TABS.map((tab) => (
+                  <button
+                    key={tab.key}
+                    onClick={() => setViewMode(tab.key)}
+                    className={`px-3 py-1 rounded-md transition-colors ${
+                      viewMode === tab.key
+                        ? 'bg-zinc-900 text-zinc-100 border border-zinc-800 font-medium'
+                        : 'text-zinc-400 hover:text-zinc-200'
+                    }`}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
+              {isCompleted && viewMode !== 'original' && activeStreamInfo && (
+                <div className="flex items-center gap-1.5 font-mono text-[11px]">
+                  {activeStreamInfo.mode === 's3' ? (
+                    <span className="flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-emerald-950/70 border border-emerald-800/80 text-emerald-400 font-medium">
+                      <Cloud className="w-3 h-3 text-emerald-400 animate-pulse" />
+                      <span>S3 Direct Stream (TTL: {activeStreamInfo.expires_in ? `${Math.round(activeStreamInfo.expires_in / 60)}m` : 'Active'})</span>
+                    </span>
+                  ) : (
+                    <span className="flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-zinc-900 border border-zinc-800 text-zinc-400">
+                      <span>Local Server Stream</span>
+                    </span>
+                  )}
+                </div>
+              )}
             </div>
           )}
           <div className="relative rounded-lg border border-zinc-800 bg-black min-h-[420px] flex items-center justify-center overflow-hidden">
@@ -207,15 +285,17 @@ export const VideoView: React.FC = () => {
               </div>
             ) : isCompleted ? (
               /* Real output video for the selected view: person boxes,
-                 real DM-Count heatmap, or both -- baked in server-side,
-                 never re-derived client-side. */
+                 density heatmap, or both -- baked in server-side,
+                 never re-derived client-side. With automatic S3 token renewal & recovery. */
               <div className="w-full h-full flex flex-col items-center justify-center">
                 <video
+                  ref={videoRef}
                   key={viewMode}
-                  src={getJobVideoUrl(job!.job_id, viewMode as VideoViewMode)}
+                  src={activeStreamUrl || getJobVideoUrl(job!.job_id, viewMode as VideoViewMode)}
                   controls
                   autoPlay
                   loop
+                  onError={handleVideoError}
                   className="w-full max-h-[500px] object-contain"
                 />
               </div>
@@ -276,7 +356,7 @@ export const VideoView: React.FC = () => {
             <div className="text-4xl font-semibold font-mono text-zinc-100">
               {metrics?.estimated_count ?? '—'}
             </div>
-            <p className="text-xs text-zinc-500">DM-Count dense regression (periodic)</p>
+            <p className="text-xs text-zinc-500">Density regression (periodic)</p>
           </div>
 
           {/* Visible People */}
@@ -288,7 +368,7 @@ export const VideoView: React.FC = () => {
             <div className="text-3xl font-semibold font-mono text-zinc-200">
               {metrics?.visible_count !== undefined && metrics?.visible_count !== null ? metrics.visible_count : 'N/A'}
             </div>
-            <p className="text-xs text-zinc-500">YOLOv8 person detections (periodic, held between passes)</p>
+            <p className="text-xs text-zinc-500">Person detections (periodic, held between passes)</p>
           </div>
 
           {/* Risk Level */}

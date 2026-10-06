@@ -13,6 +13,9 @@ fastapi>=0.110
 uvicorn[standard]>=0.29
 pydantic-settings>=2.2
 python-multipart>=0.0.9
+sqlalchemy>=2.0
+pyjwt>=2.8
+bcrypt>=4.1
 
 # Test-only, but kept in this single file for simplicity (matches this
 # project's existing convention of not splitting dev/prod requirements).
