@@ -172,7 +172,9 @@ export async function createFeed(
   sourceType: string = 'video',
   sourceUri: string = 'dashboard/static/uploads/077cc45b94_14968235_2160_3840_60fps.mp4',
   loop: boolean = true,
-  token?: string
+  token?: string,
+  deviceId?: string,
+  deviceName?: string
 ): Promise<FeedResponse> {
   const res = await fetch(`${API_BASE}/feeds`, {
     method: 'POST',
@@ -184,6 +186,8 @@ export async function createFeed(
       source_type: sourceType,
       source_uri: sourceUri,
       loop: loop,
+      device_id: deviceId,
+      device_name: deviceName,
     }),
   });
 

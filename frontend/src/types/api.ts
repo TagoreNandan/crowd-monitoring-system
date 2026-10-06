@@ -129,6 +129,8 @@ export interface FeedResponse {
   latest_metrics?: VideoFrameMetrics | null;
   error?: string | null;
   description?: string;
+  device_id?: string | null;
+  device_name?: string | null;
 }
 
 export interface RecordingSummary {

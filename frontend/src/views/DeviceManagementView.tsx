@@ -4,6 +4,7 @@ import {
   Plus,
   RefreshCw,
   Play,
+  Square,
   CheckCircle2,
   AlertCircle,
   Trash2,
@@ -14,8 +15,8 @@ import {
   Radio,
   X,
 } from 'lucide-react';
-import type { Device, DeviceCreatePayload, StreamProbeResult } from '../types/api';
-import { getDevices, createDevice, updateDevice, deleteDevice, testDevice, probeStream } from '../lib/api';
+import type { Device, DeviceCreatePayload, StreamProbeResult, FeedResponse } from '../types/api';
+import { getDevices, createDevice, updateDevice, deleteDevice, testDevice, probeStream, listFeeds, createFeed, stopFeed } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
 import { Badge } from '../components/ui/Badge';
 import { Button } from '../components/ui/Button';
@@ -27,6 +28,8 @@ interface DeviceManagementViewProps {
 export const DeviceManagementView: React.FC<DeviceManagementViewProps> = ({ onSelectDeviceForFeed }) => {
   const { isAdmin, token } = useAuth();
   const [devices, setDevices] = useState<Device[]>([]);
+  const [activeFeeds, setActiveFeeds] = useState<FeedResponse[]>([]);
+  const [streamActionLoading, setStreamActionLoading] = useState<string | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [refreshing, setRefreshing] = useState<boolean>(false);
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -76,13 +79,46 @@ export const DeviceManagementView: React.FC<DeviceManagementViewProps> = ({ onSe
     }
   };
 
+  const loadActiveFeeds = async () => {
+    try {
+      const feeds = await listFeeds(token || undefined);
+      setActiveFeeds(feeds);
+    } catch (err) {
+      console.error('Failed to load active feeds:', err);
+    }
+  };
+
   useEffect(() => {
     loadDevices();
+    loadActiveFeeds();
+    const interval = setInterval(loadActiveFeeds, 4000);
+    return () => clearInterval(interval);
   }, [statusFilter, protocolFilter, searchQuery, token]);
 
   const handleRefresh = () => {
     setRefreshing(true);
     loadDevices();
+    loadActiveFeeds();
+  };
+
+  const handleToggleStream = async (device: Device) => {
+    const activeFeed = activeFeeds.find((f) => f.device_id === device.device_id);
+    setStreamActionLoading(device.device_id);
+    try {
+      if (activeFeed) {
+        await stopFeed(activeFeed.feed_id, token || undefined);
+      } else {
+        let sourceType = 'rtsp';
+        if (device.stream_type.toUpperCase() === 'WEBCAM') sourceType = 'camera';
+        else if (device.stream_type.toUpperCase() === 'VIDEO_FILE') sourceType = 'sample';
+        await createFeed(sourceType, device.stream_url, true, token || undefined, device.device_id, device.name);
+      }
+      await loadActiveFeeds();
+    } catch (err) {
+      console.error('Failed to toggle stream for device:', err);
+    } finally {
+      setStreamActionLoading(null);
+    }
   };
 
   // Quick connectivity test
@@ -400,6 +436,9 @@ export const DeviceManagementView: React.FC<DeviceManagementViewProps> = ({ onSe
             const isOnline = device.status.toUpperCase() === 'ONLINE';
             const isTesting = testingDeviceId === device.device_id;
             const currentTest = testResult?.deviceId === device.device_id ? testResult.result : null;
+            const activeFeed = activeFeeds.find((f) => f.device_id === device.device_id);
+            const isStreaming = !!activeFeed && activeFeed.status !== 'stopped';
+            const isActionLoading = streamActionLoading === device.device_id;
 
             return (
               <div
@@ -413,6 +452,12 @@ export const DeviceManagementView: React.FC<DeviceManagementViewProps> = ({ onSe
                       {device.device_id}
                     </span>
                     <div className="flex items-center gap-1.5">
+                      {isStreaming && (
+                        <span className="flex items-center gap-1 text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-950/80 text-emerald-400 border border-emerald-800/80 animate-pulse">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block" />
+                          LIVE
+                        </span>
+                      )}
                       <Badge
                         variant={isOnline ? 'safe' : 'secondary'}
                         className="text-[10px] font-mono uppercase"
@@ -484,15 +529,38 @@ export const DeviceManagementView: React.FC<DeviceManagementViewProps> = ({ onSe
                 {/* Actions */}
                 <div className="flex items-center justify-between pt-2 border-t border-zinc-800/80 gap-2">
                   <div className="flex items-center gap-1.5">
+                    <Button
+                      variant={isStreaming ? 'outline' : 'default'}
+                      size="sm"
+                      onClick={() => handleToggleStream(device)}
+                      disabled={isActionLoading}
+                      className={`text-xs flex items-center gap-1 font-medium cursor-pointer ${
+                        isStreaming
+                          ? 'text-red-400 border-red-800/80 hover:bg-red-950/40 hover:text-red-300'
+                          : 'bg-emerald-600 hover:bg-emerald-500 text-white'
+                      }`}
+                      title={isStreaming ? 'Stop Live Stream' : 'Start Live Stream'}
+                    >
+                      {isActionLoading ? (
+                        <RefreshCw className="w-3 h-3 animate-spin" />
+                      ) : isStreaming ? (
+                        <Square className="w-3 h-3 fill-current" />
+                      ) : (
+                        <Play className="w-3 h-3 fill-current" />
+                      )}
+                      <span>{isStreaming ? 'Stop' : 'Stream'}</span>
+                    </Button>
+
                     {onSelectDeviceForFeed && (
                       <Button
-                        variant="default"
+                        variant="ghost"
                         size="sm"
                         onClick={() => onSelectDeviceForFeed(device)}
-                        className="text-xs bg-zinc-100 text-zinc-900 hover:bg-white flex items-center gap-1 font-medium"
+                        className="text-xs text-zinc-300 hover:text-white hover:bg-zinc-800 flex items-center gap-1 cursor-pointer"
+                        title="Open in Real-Time Feed"
                       >
-                        <Play className="w-3 h-3 fill-current" />
-                        Monitor
+                        <Radio className="w-3 h-3 text-cyan-400" />
+                        <span>View</span>
                       </Button>
                     )}
 

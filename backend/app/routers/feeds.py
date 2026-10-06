@@ -70,6 +70,8 @@ _active_feeds: dict[str, RealtimeFeedSession] = {}
 _feed_peaks: dict[str, float] = {}
 _feed_latest_frames: dict[str, dict[str, str]] = {}
 _feed_recorders: dict[str, LiveFeedRecorder] = {}
+_feed_device_ids: dict[str, str] = {}
+_feed_device_names: dict[str, str] = {}
 
 
 def get_active_feeds_snapshot() -> tuple[dict[str, RealtimeFeedSession], dict[str, float], dict[str, dict[str, str]]]:
@@ -86,6 +88,8 @@ class CreateFeedRequest(BaseModel):
     source_type: str = Field("sample", description="Feed type: 'sample', 'video', 'camera', or 'rtsp'")
     source_uri: Optional[str] = Field(None, description="File path, RTSP/RTMP URL, or camera index")
     loop: bool = Field(True, description="Whether to loop video/sample source continuously")
+    device_id: Optional[str] = Field(None, description="Optional associated fleet device ID")
+    device_name: Optional[str] = Field(None, description="Optional associated fleet device name")
 
 
 class FeedMetricsResponse(BaseModel):
@@ -125,6 +129,8 @@ class FeedSessionResponse(BaseModel):
     started_at: Optional[float] = None
     is_recording: bool = False
     latest_metrics: Optional[FeedMetricsResponse] = None
+    device_id: Optional[str] = None
+    device_name: Optional[str] = None
 
 
 def _build_feed_response(session: RealtimeFeedSession, source_type: str) -> FeedSessionResponse:
@@ -135,6 +141,8 @@ def _build_feed_response(session: RealtimeFeedSession, source_type: str) -> Feed
     with _feeds_lock:
         peak_count = round(_feed_peaks.get(session.session_id, 0.0), 2)
         is_recording = session.session_id in _feed_recorders
+        device_id = _feed_device_ids.get(session.session_id)
+        device_name = _feed_device_names.get(session.session_id)
     if fast is not None or density is not None:
         active_frame = fast.frame if fast is not None else (density.frame if density is not None else None)
         frame_number = active_frame.frame_number if active_frame is not None else 0
@@ -174,6 +182,8 @@ def _build_feed_response(session: RealtimeFeedSession, source_type: str) -> Feed
         started_at=session.started_at,
         is_recording=is_recording,
         latest_metrics=latest_metrics,
+        device_id=device_id,
+        device_name=device_name,
     )
 
 
@@ -295,6 +305,13 @@ async def create_feed(
     person_detector: PersonDetector = Depends(get_person_detector),
     current_user: User = Depends(require_admin),
 ) -> FeedSessionResponse:
+    if req.device_id:
+        with _feeds_lock:
+            for fid, did in list(_feed_device_ids.items()):
+                if did == req.device_id and fid in _active_feeds:
+                    logger.info("Device %s already streaming under feed %s", req.device_id, fid)
+                    return _build_feed_response(_active_feeds[fid], req.source_type)
+
     feed_id = f"feed_{uuid.uuid4().hex[:8]}"
     source = await asyncio.to_thread(_resolve_source, req.source_type, req.source_uri)
 
@@ -497,6 +514,10 @@ async def create_feed(
 
     with _feeds_lock:
         _active_feeds[feed_id] = session
+        if req.device_id:
+            _feed_device_ids[feed_id] = req.device_id
+        if req.device_name:
+            _feed_device_names[feed_id] = req.device_name
     # Recording is now manual/on-demand via /api/feeds/{feed_id}/record/start
     return _build_feed_response(session, req.source_type)
 
@@ -614,6 +635,8 @@ async def _finalize_feed_session(
         sess = _active_feeds.pop(feed_id, None)
         _feed_peaks.pop(feed_id, None)
         _feed_latest_frames.pop(feed_id, None)
+        _feed_device_ids.pop(feed_id, None)
+        _feed_device_names.pop(feed_id, None)
         recorder = _feed_recorders.pop(feed_id, None)
     if sess is None:
         return
