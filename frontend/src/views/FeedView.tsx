@@ -14,7 +14,6 @@ import {
   X,
   LayoutGrid,
   Maximize2,
-  Plus,
   SlidersHorizontal,
   ChevronDown,
   ChevronUp,
@@ -49,7 +48,8 @@ interface FeedViewProps {
 
 export const FeedView: React.FC<FeedViewProps> = ({ initialDevice }) => {
   const [enrolledDevices, setEnrolledDevices] = useState<Device[]>([]);
-  const [selectedDeviceId, setSelectedDeviceId] = useState<string>('');
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const [_selectedDeviceId, setSelectedDeviceId] = useState<string>('');
   const [sourceType, setSourceType] = useState<string>('sample');
   const [sourceUri, setSourceUri] = useState<string>('examples/sample_crowd.mp4');
   const [feedUploadFile, setFeedUploadFile] = useState<File | null>(null);
@@ -63,10 +63,19 @@ export const FeedView: React.FC<FeedViewProps> = ({ initialDevice }) => {
   const [batchActionLoading, setBatchActionLoading] = useState<boolean>(false);
   const [currentPage, setCurrentPage] = useState<number>(1);
 
+  // Determine whether to display the Multi-Stream Grid or Single Focus View
+  // Must be declared before the useEffect that depends on it.
+  const isShowingGrid = useMemo(() => {
+    if (viewModePreference === 'grid') return true;
+    if (viewModePreference === 'single') return false;
+    // 'auto' mode: if focusedFeedId is set, show single. If > 1 stream, show grid.
+    if (focusedFeedId) return false;
+    return activeFeeds.length > 1;
+  }, [viewModePreference, focusedFeedId, activeFeeds.length]);
+
   // Single-feed detailed view state (for the focused feed or primary feed)
   const [activeFeed, setActiveFeed] = useState<FeedResponse | null>(null);
   const [starting, setStarting] = useState<boolean>(false);
-  const [stopping, setStopping] = useState<boolean>(false);
   const [connectionState, setConnectionState] = useState<ConnectionState>('STOPPED');
   const [metrics, setMetrics] = useState<VideoFrameMetrics | null>(null);
   const [liveFrame, setLiveFrame] = useState<string | null>(null);
@@ -477,14 +486,7 @@ export const FeedView: React.FC<FeedViewProps> = ({ initialDevice }) => {
     return { totalCount: Math.round(totalCount), maxRisk };
   }, [activeFeeds]);
 
-  // Determine whether to display the Multi-Stream Grid or Single Focus View
-  const isShowingGrid = useMemo(() => {
-    if (viewModePreference === 'grid') return true;
-    if (viewModePreference === 'single') return false;
-    // 'auto' mode: if focusedFeedId is set, show single. If > 1 stream, show grid.
-    if (focusedFeedId) return false;
-    return activeFeeds.length > 1;
-  }, [viewModePreference, focusedFeedId, activeFeeds.length]);
+
 
   const getDisplayedFrame = () => {
     if (viewMode === 'heatmap' && liveHeatmap) return liveHeatmap;

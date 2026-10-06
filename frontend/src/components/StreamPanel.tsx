@@ -8,9 +8,6 @@ import {
   RefreshCw,
   Download,
   Users,
-  Activity,
-  Radio,
-  Layers,
   CheckCircle2,
 } from 'lucide-react';
 import type { FeedResponse, VideoFrameMetrics, WSEnvelope, PartialFeedMetrics, RecordingSummary } from '../types/api';
@@ -21,7 +18,6 @@ import {
   getFeedRecordingStatus,
   getStoredToken,
 } from '../lib/api';
-import { Badge } from './ui/Badge';
 import { Button } from './ui/Button';
 
 type ConnectionState = 'CONNECTING' | 'LIVE' | 'RECONNECTING' | 'STOPPED' | 'ERROR';
@@ -384,7 +380,7 @@ export const StreamPanel: React.FC<StreamPanelProps> = memo(({
             alt={displayName}
             className="w-full h-full object-contain max-h-full transition-opacity duration-150"
           />
-        ) : connectionState === 'OFFLINE' || connectionState === 'STOPPED' ? (
+        ) : connectionState === 'STOPPED' ? (
           <div className="flex flex-col items-center justify-center gap-2 p-6 text-center text-zinc-500 font-mono">
             <WifiOff className="w-8 h-8 text-zinc-600 mb-1" />
             <div className="text-xs font-semibold text-zinc-300">Camera Feed Inactive</div>

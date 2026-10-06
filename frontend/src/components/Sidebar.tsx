@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
   Activity,
   LayoutDashboard,
@@ -7,8 +7,6 @@ import {
   Radio,
   Shield,
   Camera,
-  ChevronLeft,
-  ChevronRight,
   PanelLeftClose,
   PanelLeftOpen,
 } from 'lucide-react';
