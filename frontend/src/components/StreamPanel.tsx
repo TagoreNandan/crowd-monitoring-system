@@ -63,6 +63,7 @@ export const StreamPanel: React.FC<StreamPanelProps> = memo(({
   const intentionalStopRef = useRef<boolean>(false);
   const reconnectAttemptsRef = useRef<number>(0);
   const reconnectTimerRef = useRef<any>(null);
+  const connectedFeedIdRef = useRef<string | null>(null);
 
   const startRecordingTimer = useCallback((fromSeconds: number) => {
     if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
@@ -79,6 +80,10 @@ export const StreamPanel: React.FC<StreamPanelProps> = memo(({
   };
 
   const attachSocket = useCallback((feedId: string) => {
+    if (connectedFeedIdRef.current === feedId && wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      return;
+    }
+    connectedFeedIdRef.current = feedId;
     intentionalStopRef.current = false;
     if (wsRef.current) {
       wsRef.current.close();
@@ -99,6 +104,7 @@ export const StreamPanel: React.FC<StreamPanelProps> = memo(({
           } else if (envelope.type === 'feed.status') {
             if (envelope.data?.status === 'stopped') {
               intentionalStopRef.current = true;
+              connectedFeedIdRef.current = null;
               setConnectionState('STOPPED');
               setIsRecording(false);
               if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
@@ -118,14 +124,17 @@ export const StreamPanel: React.FC<StreamPanelProps> = memo(({
         },
         (connected: boolean) => {
           if (connected) {
+            reconnectAttemptsRef.current = 0;
             setConnectionState((prev) => (prev === 'LIVE' ? prev : 'CONNECTING'));
             return;
           }
           if (intentionalStopRef.current) {
+            connectedFeedIdRef.current = null;
             setConnectionState('STOPPED');
             return;
           }
           if (reconnectAttemptsRef.current >= 3) {
+            connectedFeedIdRef.current = null;
             setConnectionState('ERROR');
             setError('Stream connection dropped');
             return;
@@ -161,11 +170,12 @@ export const StreamPanel: React.FC<StreamPanelProps> = memo(({
 
     return () => {
       intentionalStopRef.current = true;
+      connectedFeedIdRef.current = null;
       if (wsRef.current) wsRef.current.close();
       if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
       if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
     };
-  }, [feed.feed_id, attachSocket, startRecordingTimer, token]);
+  }, [feed.feed_id]);
 
   const handleStartRecording = async () => {
     setRecordLoading(true);

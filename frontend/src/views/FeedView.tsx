@@ -106,18 +106,35 @@ export const FeedView: React.FC<FeedViewProps> = ({ initialDevice }) => {
     }
   };
 
-  // Poll list of active feeds from backend
+  const connectedFeedIdRef = useRef<string | null>(null);
+
+  // Poll list of active feeds from backend with reference stability
   const refreshActiveFeeds = useCallback(async () => {
     try {
       const feeds = await listFeeds();
       const running = feeds.filter((f) => f.status === 'running' || f.status === 'starting');
-      setActiveFeeds(running);
+      setActiveFeeds((prev) => {
+        if (
+          prev.length === running.length &&
+          prev.every(
+            (p, i) =>
+              p.feed_id === running[i].feed_id &&
+              p.status === running[i].status &&
+              p.is_recording === running[i].is_recording
+          )
+        ) {
+          return prev;
+        }
+        return running;
+      });
 
       // If activeFeed stopped running, update single view
       if (feedIdRef.current && !running.some((f) => f.feed_id === feedIdRef.current)) {
         setActiveFeed(null);
         feedIdRef.current = null;
+        connectedFeedIdRef.current = null;
         setConnectionState('STOPPED');
+        if (wsRef.current) wsRef.current.close();
       }
     } catch (err) {
       console.error('Failed to query active feeds:', err);
@@ -141,8 +158,12 @@ export const FeedView: React.FC<FeedViewProps> = ({ initialDevice }) => {
     return () => clearInterval(interval);
   }, [initialDevice, refreshActiveFeeds]);
 
-  // Connect WebSocket for single detailed view
+  // Connect WebSocket for single detailed view (guards against redundant reconnects)
   const attachSocket = useCallback((feedId: string) => {
+    if (connectedFeedIdRef.current === feedId && wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      return;
+    }
+    connectedFeedIdRef.current = feedId;
     intentionalStopRef.current = false;
     if (wsRef.current) wsRef.current.close();
 
@@ -160,6 +181,7 @@ export const FeedView: React.FC<FeedViewProps> = ({ initialDevice }) => {
         } else if (envelope.type === 'feed.status') {
           if (envelope.data?.status === 'stopped') {
             intentionalStopRef.current = true;
+            connectedFeedIdRef.current = null;
             setConnectionState('STOPPED');
             setMetrics(null);
             setLiveFrame(null);
@@ -183,14 +205,17 @@ export const FeedView: React.FC<FeedViewProps> = ({ initialDevice }) => {
       },
       (connected: boolean) => {
         if (connected) {
+          reconnectAttemptsRef.current = 0;
           setConnectionState((prev) => (prev === 'LIVE' ? prev : 'CONNECTING'));
           return;
         }
         if (intentionalStopRef.current) {
+          connectedFeedIdRef.current = null;
           setConnectionState('STOPPED');
           return;
         }
         if (reconnectAttemptsRef.current >= MAX_RECONNECT_ATTEMPTS) {
+          connectedFeedIdRef.current = null;
           setConnectionState('ERROR');
           setError('Lost connection to the real-time feed and could not reconnect.');
           return;
@@ -206,13 +231,35 @@ export const FeedView: React.FC<FeedViewProps> = ({ initialDevice }) => {
     );
   }, []);
 
-  // When focused feed changes, update active single feed
+  // When focused feed changes, update active single feed (only connects in Single view mode!)
   useEffect(() => {
-    if (focusedFeedId) {
-      const feed = activeFeeds.find((f) => f.feed_id === focusedFeedId);
-      if (feed) {
-        setActiveFeed(feed);
-        feedIdRef.current = feed.feed_id;
+    // In grid mode, the individual StreamPanels handle their own WebSockets; close single socket
+    if (isShowingGrid) {
+      if (wsRef.current) {
+        wsRef.current.close();
+        wsRef.current = null;
+      }
+      connectedFeedIdRef.current = null;
+      return;
+    }
+
+    const targetFeedId = focusedFeedId || (activeFeeds.length > 0 ? activeFeeds[0].feed_id : null);
+    if (!targetFeedId) {
+      if (wsRef.current) {
+        wsRef.current.close();
+        wsRef.current = null;
+      }
+      connectedFeedIdRef.current = null;
+      setActiveFeed(null);
+      setConnectionState('STOPPED');
+      return;
+    }
+
+    const feed = activeFeeds.find((f) => f.feed_id === targetFeedId);
+    if (feed) {
+      setActiveFeed(feed);
+      feedIdRef.current = feed.feed_id;
+      if (connectedFeedIdRef.current !== feed.feed_id) {
         setConnectionState('CONNECTING');
         attachSocket(feed.feed_id);
 
@@ -225,14 +272,8 @@ export const FeedView: React.FC<FeedViewProps> = ({ initialDevice }) => {
           })
           .catch(() => {});
       }
-    } else if (activeFeeds.length === 1 && !activeFeed) {
-      const single = activeFeeds[0];
-      setActiveFeed(single);
-      feedIdRef.current = single.feed_id;
-      setConnectionState('CONNECTING');
-      attachSocket(single.feed_id);
     }
-  }, [focusedFeedId, activeFeeds, activeFeed, attachSocket, startRecordingTimer]);
+  }, [isShowingGrid, focusedFeedId, activeFeeds, attachSocket, startRecordingTimer]);
 
   useEffect(() => {
     return () => {
