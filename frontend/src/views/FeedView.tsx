@@ -1130,6 +1130,7 @@ export const FeedView: React.FC<FeedViewProps> = ({ initialDevice }) => {
             </div>
           </div>
         </div>
+      )}
     </div>
   );
 };
