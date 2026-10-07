@@ -24,7 +24,7 @@ import {
   getDevices,
   listFeeds,
 } from '../lib/api';
-import type { Device, FeedResponse } from '../types/api';
+import type { Device, FeedResponse, VideoFrameMetrics } from '../types/api';
 import { Badge } from '../components/ui/Badge';
 import { Button } from '../components/ui/Button';
 import { StreamPanel } from '../components/StreamPanel';
@@ -49,6 +49,14 @@ export const FeedView: React.FC<FeedViewProps> = ({ initialDevice }) => {
   const [deviceActionLoading, setDeviceActionLoading] = useState<string | null>(null);
   const [batchActionLoading, setBatchActionLoading] = useState<boolean>(false);
   const [currentPage, setCurrentPage] = useState<number>(1);
+  const [liveMetricsMap, setLiveMetricsMap] = useState<Record<string, VideoFrameMetrics>>({});
+
+  const handleMetricsUpdate = useCallback((feedId: string, metrics: VideoFrameMetrics) => {
+    setLiveMetricsMap((prev) => {
+      if (prev[feedId] === metrics) return prev;
+      return { ...prev, [feedId]: metrics };
+    });
+  }, []);
 
   // Determine whether to display the Multi-Stream Grid or Single Focus View
   // Must be declared before the useEffect that depends on it.
@@ -155,21 +163,25 @@ export const FeedView: React.FC<FeedViewProps> = ({ initialDevice }) => {
     }
   };
 
-  // Launch all online cameras at once
+  // Launch all online cameras concurrently
   const handleStartAllFleet = async () => {
     setBatchActionLoading(true);
     try {
       const onlineDevices = enrolledDevices.filter((d) => d.status.toUpperCase() === 'ONLINE');
-      for (const dev of onlineDevices.slice(0, 6)) {
-        const isRunning = activeFeeds.some((f) => f.device_id === dev.device_id);
-        if (!isRunning) {
-          let st = 'rtsp';
-          if (dev.stream_type.toUpperCase() === 'WEBCAM') st = 'camera';
-          else if (dev.stream_type.toUpperCase() === 'VIDEO_FILE') st = 'sample';
-          await createFeed(st, dev.stream_url, true, undefined, dev.device_id, dev.name).catch(() => {});
-        }
-      }
+      await Promise.allSettled(
+        onlineDevices.slice(0, 6).map(async (dev) => {
+          const isRunning = activeFeeds.some((f) => f.device_id === dev.device_id);
+          if (!isRunning) {
+            let st = 'rtsp';
+            if (dev.stream_type.toUpperCase() === 'WEBCAM') st = 'camera';
+            else if (dev.stream_type.toUpperCase() === 'VIDEO_FILE') st = 'sample';
+            await createFeed(st, dev.stream_url, true, undefined, dev.device_id, dev.name).catch(() => {});
+          }
+        })
+      );
       await refreshActiveFeeds();
+    } catch (err: any) {
+      console.error('Error starting fleet cameras:', err);
     } finally {
       setBatchActionLoading(false);
     }
@@ -179,12 +191,13 @@ export const FeedView: React.FC<FeedViewProps> = ({ initialDevice }) => {
   const handleStopAllFeeds = async () => {
     setBatchActionLoading(true);
     try {
-      await Promise.allSettled(activeFeeds.map((f) => stopFeed(f.feed_id)));
+      await Promise.allSettled(activeFeeds.map((f) => stopFeed(f.feed_id).catch(() => {})));
       setActiveFeeds([]);
       setActiveFeed(null);
       setFocusedFeedId(null);
-      feedIdRef.current = null;
-      setConnectionState('STOPPED');
+      await refreshActiveFeeds();
+    } catch (err: any) {
+      console.error('Error stopping all feeds:', err);
     } finally {
       setBatchActionLoading(false);
     }
@@ -282,14 +295,6 @@ export const FeedView: React.FC<FeedViewProps> = ({ initialDevice }) => {
   }, [activeFeeds]);
 
 
-
-  const getDisplayedFrame = () => {
-    if (viewMode === 'heatmap' && liveHeatmap) return liveHeatmap;
-    if (viewMode === 'combined' && liveCombined) return liveCombined;
-    return liveFrame;
-  };
-
-  const currentDisplayedFrame = getDisplayedFrame();
 
   return (
     <div className="h-full min-h-0 flex flex-col p-3 md:p-4 gap-2 overflow-hidden select-none">
@@ -556,72 +561,10 @@ export const FeedView: React.FC<FeedViewProps> = ({ initialDevice }) => {
       )}
 
       {/* =========================================================================
-          VIEW MODE 1: MULTI-STREAM SURVEILLANCE WALL (GRID VIEW)
+          DYNAMIC SURVEILLANCE WORKSPACE (PERMANENT STREAM MOUNTING)
           ========================================================================= */}
-      {isShowingGrid && activeFeeds.length > 0 ? (
-        <div className="flex-1 min-h-0 flex flex-col gap-2 overflow-hidden">
-          {/* Top Aggregate Fleet KPI Strip */}
-          <div className="flex items-center justify-between px-3 py-1.5 rounded-md bg-zinc-900/50 border border-zinc-800 font-mono text-xs shrink-0">
-            <div className="flex items-center gap-4">
-              <span className="text-zinc-400">
-                Active Feeds: <strong className="text-emerald-400">{activeFeeds.length}</strong>
-              </span>
-              <span className="text-zinc-400">
-                Total Monitored: <strong className="text-zinc-100">{aggregateMetrics.totalCount}</strong>
-              </span>
-              <span className="text-zinc-400 flex items-center gap-1.5">
-                Highest Risk:
-                <Badge variant={getRiskVariant(aggregateMetrics.maxRisk)} className="font-bold text-[10px] py-0 px-1.5">
-                  {aggregateMetrics.maxRisk}
-                </Badge>
-              </span>
-              <span className="text-zinc-500 hidden md:inline">
-                Wall Matrix: Showing {visibleFeeds.length} of {activeFeeds.length}
-              </span>
-            </div>
-
-            {totalPages > 1 && (
-              <div className="flex items-center gap-1.5">
-                <button
-                  onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-                  disabled={safePage === 1}
-                  className="px-2 py-0.5 rounded bg-zinc-800 text-zinc-300 hover:text-white disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1 text-[11px] cursor-pointer"
-                >
-                  <ChevronLeft className="w-3 h-3" /> Prev
-                </button>
-                <span className="text-zinc-300 text-[11px]">
-                  Page {safePage}/{totalPages}
-                </span>
-                <button
-                  onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-                  disabled={safePage >= totalPages}
-                  className="px-2 py-0.5 rounded bg-zinc-800 text-zinc-300 hover:text-white disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1 text-[11px] cursor-pointer"
-                >
-                  Next <ChevronRight className="w-3 h-3" />
-                </button>
-              </div>
-            )}
-          </div>
-
-          {/* Dynamic Adaptive CCTV Grid (Strict Viewport Locking, max 6 per page) */}
-          <div className={`grid flex-1 min-h-0 gap-2.5 ${gridLayoutClass}`}>
-            {visibleFeeds.map((feed) => (
-              <StreamPanel
-                key={feed.feed_id}
-                feed={feed}
-                onFocus={(f) => {
-                  setFocusedFeedId(f.feed_id);
-                  setViewModePreference('single');
-                }}
-                onStop={handleStopSingleFeed}
-              />
-            ))}
-          </div>
-        </div>
-      ) : activeFeeds.length === 0 ? (
-        /* =========================================================================
-            EMPTY STATE: ZERO CAMERAS RUNNING
-            ========================================================================= */
+      {activeFeeds.length === 0 ? (
+        /* EMPTY STATE: ZERO CAMERAS RUNNING */
         <div className="flex-1 min-h-0 flex flex-col items-center justify-center p-8 text-center rounded-xl bg-zinc-900/20 border border-zinc-800/80 space-y-4">
           <div className="w-12 h-12 rounded-full bg-zinc-900 border border-zinc-800 flex items-center justify-center mx-auto text-zinc-500 shadow-inner">
             <Radio className="w-6 h-6" />
@@ -661,137 +604,211 @@ export const FeedView: React.FC<FeedViewProps> = ({ initialDevice }) => {
           </div>
         </div>
       ) : (
-        /* =========================================================================
-            VIEW MODE 2: SINGLE CAMERA DETAILED INSPECTION VIEW
-            ========================================================================= */
         <div className="flex-1 min-h-0 flex flex-col gap-2 overflow-hidden">
-          {/* Quick Return to Grid Banner if multiple streams are running */}
-          {activeFeeds.length > 1 && (
-            <div className="flex items-center justify-between px-3 py-1.5 rounded-lg bg-zinc-900/80 border border-zinc-800 text-xs font-mono shrink-0">
-              <div className="flex items-center gap-2 text-zinc-300">
-                <Maximize2 className="w-4 h-4 text-cyan-400" />
-                <span>
-                  Currently inspecting:{' '}
-                  <strong className="text-white">
-                    {activeFeed?.device_name || activeFeed?.description || activeFeed?.feed_id}
-                  </strong>
+          {/* Top Mode Header / Sub-Nav */}
+          {isShowingGrid ? (
+            /* Top Aggregate Fleet KPI Strip */
+            <div className="flex items-center justify-between px-3 py-1.5 rounded-md bg-zinc-900/50 border border-zinc-800 font-mono text-xs shrink-0">
+              <div className="flex items-center gap-4">
+                <span className="text-zinc-400">
+                  Active Feeds: <strong className="text-emerald-400">{activeFeeds.length}</strong>
                 </span>
-                <span className="text-zinc-500">({activeFeeds.length} streams running)</span>
+                <span className="text-zinc-400">
+                  Total Monitored: <strong className="text-zinc-100">{aggregateMetrics.totalCount}</strong>
+                </span>
+                <span className="text-zinc-400 flex items-center gap-1.5">
+                  Highest Risk:
+                  <Badge variant={getRiskVariant(aggregateMetrics.maxRisk)} className="font-bold text-[10px] py-0 px-1.5">
+                    {aggregateMetrics.maxRisk}
+                  </Badge>
+                </span>
+                <span className="text-zinc-500 hidden md:inline">
+                  Wall Matrix: Showing {visibleFeeds.length} of {activeFeeds.length}
+                </span>
               </div>
 
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  setFocusedFeedId(null);
-                  setViewModePreference('grid');
-                }}
-                className="text-xs border-zinc-700 text-zinc-200 hover:bg-zinc-800 cursor-pointer h-7 px-2.5"
-              >
-                <LayoutGrid className="w-3.5 h-3.5 mr-1" />
-                Back to Multi-Stream Wall
-              </Button>
+              {totalPages > 1 && (
+                <div className="flex items-center gap-1.5">
+                  <button
+                    onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                    disabled={safePage === 1}
+                    className="px-2 py-0.5 rounded bg-zinc-800 text-zinc-300 hover:text-white disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1 text-[11px] cursor-pointer"
+                  >
+                    <ChevronLeft className="w-3 h-3" /> Prev
+                  </button>
+                  <span className="text-zinc-300 text-[11px]">
+                    Page {safePage}/{totalPages}
+                  </span>
+                  <button
+                    onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                    disabled={safePage >= totalPages}
+                    className="px-2 py-0.5 rounded bg-zinc-800 text-zinc-300 hover:text-white disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1 text-[11px] cursor-pointer"
+                  >
+                    Next <ChevronRight className="w-3 h-3" />
+                  </button>
+                </div>
+              )}
             </div>
+          ) : (
+            /* Quick Return to Grid Banner if multiple streams are running */
+            activeFeeds.length > 1 && (
+              <div className="flex items-center justify-between px-3 py-1.5 rounded-lg bg-zinc-900/80 border border-zinc-800 text-xs font-mono shrink-0">
+                <div className="flex items-center gap-2 text-zinc-300">
+                  <Maximize2 className="w-4 h-4 text-cyan-400" />
+                  <span>
+                    Currently inspecting:{' '}
+                    <strong className="text-white">
+                      {activeFeed?.device_name || activeFeed?.description || activeFeed?.feed_id}
+                    </strong>
+                  </span>
+                  <span className="text-zinc-500">({activeFeeds.length} streams running)</span>
+                </div>
+
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setFocusedFeedId(null);
+                    setViewModePreference('grid');
+                  }}
+                  className="text-xs border-zinc-700 text-zinc-200 hover:bg-zinc-800 cursor-pointer h-7 px-2.5"
+                >
+                  <LayoutGrid className="w-3.5 h-3.5 mr-1" />
+                  Back to Multi-Stream Wall
+                </Button>
+              </div>
+            )
           )}
 
-          {/* Viewport & Side Telemetry Layout */}
+          {/* Unified Stream Grid + Side Telemetry (Streams Never Unmount) */}
           <div className="flex-1 min-h-0 flex flex-col lg:flex-row gap-3 overflow-hidden">
-            <div className="flex-1 min-h-0 flex flex-col gap-2 overflow-hidden">
-              {(() => {
-                const targetFeed = activeFeed || (activeFeeds.length > 0 ? activeFeeds[0] : null);
-                if (!targetFeed) return null;
+            {/* Left Primary Stream Display Area */}
+            <div
+              className={`flex-1 min-h-0 ${
+                isShowingGrid ? `grid gap-2.5 ${gridLayoutClass}` : 'flex flex-col'
+              }`}
+            >
+              {visibleFeeds.map((feed) => {
+                const targetId = focusedFeedId || (activeFeeds.length > 0 ? activeFeeds[0].feed_id : null);
+                const isTarget = feed.feed_id === targetId;
+                const isFocused = !isShowingGrid && isTarget;
+                const isHidden = !isShowingGrid && !isTarget;
+
                 return (
-                  <StreamPanel
-                    key={targetFeed.feed_id}
-                    feed={targetFeed}
-                    isFocused={true}
-                    onFocus={() => {
-                      setFocusedFeedId(null);
-                      setViewModePreference('grid');
-                    }}
-                    onStop={handleStopSingleFeed}
-                    className="h-full"
-                  />
+                  <div
+                    key={feed.feed_id}
+                    className={
+                      isHidden
+                        ? 'hidden'
+                        : isFocused
+                        ? 'flex-1 h-full min-h-0 flex flex-col'
+                        : 'h-full min-h-0 flex flex-col'
+                    }
+                  >
+                    <StreamPanel
+                      feed={feed}
+                      isFocused={isFocused}
+                      onFocus={(f) => {
+                        if (isFocused) {
+                          setFocusedFeedId(null);
+                          setViewModePreference('grid');
+                        } else {
+                          setFocusedFeedId(f.feed_id);
+                          setViewModePreference('single');
+                        }
+                      }}
+                      onStop={handleStopSingleFeed}
+                      onMetricsUpdate={(m) => handleMetricsUpdate(feed.feed_id, m)}
+                      className="h-full"
+                    />
+                  </div>
                 );
-              })()}
+              })}
             </div>
 
-            {/* Right Telemetry Column (Deep Analytics) */}
-            <div className="w-full lg:w-80 shrink-0 h-full overflow-y-auto space-y-2.5 pr-1 font-mono">
-              <div className="p-3.5 rounded-lg bg-zinc-900/40 border border-zinc-800 space-y-1">
-                <span className="text-xs text-zinc-400 font-medium flex items-center gap-1.5">
-                  <Users className="w-3.5 h-3.5 text-zinc-400" />
-                  Estimated Crowd
-                </span>
-                <div className="text-3xl font-bold font-mono text-zinc-100">
-                  {activeFeed?.latest_metrics?.estimated_count != null ? Math.round(activeFeed.latest_metrics.estimated_count) : '—'}
-                </div>
-                <p className="text-[11px] text-zinc-500">Spatial density estimate</p>
-              </div>
+            {/* Right Telemetry Column (Visible in Single Focus View, powered by real-time WebSocket metrics) */}
+            {!isShowingGrid && (() => {
+              const targetFeed = activeFeed || (activeFeeds.length > 0 ? activeFeeds[0] : null);
+              const curMetrics = (targetFeed && liveMetricsMap[targetFeed.feed_id]) || targetFeed?.latest_metrics;
 
-              <div className="p-3.5 rounded-lg bg-zinc-900/40 border border-zinc-800 space-y-1">
-                <span className="text-xs text-zinc-400 font-medium flex items-center gap-1.5">
-                  <Eye className="w-3.5 h-3.5 text-zinc-400" />
-                  Visible People
-                </span>
-                <div className="text-2xl font-bold font-mono text-zinc-200">
-                  {activeFeed?.latest_metrics?.visible_count != null ? activeFeed.latest_metrics.visible_count : '—'}
-                </div>
-                <p className="text-[11px] text-zinc-500">Optical detection count</p>
-              </div>
+              return (
+                <div className="w-full lg:w-80 shrink-0 h-full overflow-y-auto space-y-2.5 pr-1 font-mono">
+                  <div className="p-3.5 rounded-lg bg-zinc-900/40 border border-zinc-800 space-y-1">
+                    <span className="text-xs text-zinc-400 font-medium flex items-center gap-1.5">
+                      <Users className="w-3.5 h-3.5 text-zinc-400" />
+                      Estimated Crowd
+                    </span>
+                    <div className="text-3xl font-bold font-mono text-zinc-100">
+                      {curMetrics?.estimated_count != null ? Math.round(curMetrics.estimated_count) : '—'}
+                    </div>
+                    <p className="text-[11px] text-zinc-500">Spatial density estimate</p>
+                  </div>
 
-              <div className="p-3 rounded-lg bg-zinc-900/40 border border-zinc-800 flex items-center justify-between">
-                <span className="text-xs text-zinc-400 font-medium">Peak Count</span>
-                <div className="text-lg font-bold font-mono text-zinc-200">
-                  {activeFeed?.latest_metrics?.peak_count != null ? activeFeed.latest_metrics.peak_count : '—'}
-                </div>
-              </div>
+                  <div className="p-3.5 rounded-lg bg-zinc-900/40 border border-zinc-800 space-y-1">
+                    <span className="text-xs text-zinc-400 font-medium flex items-center gap-1.5">
+                      <Eye className="w-3.5 h-3.5 text-zinc-400" />
+                      Visible People
+                    </span>
+                    <div className="text-2xl font-bold font-mono text-zinc-200">
+                      {curMetrics?.visible_count != null ? curMetrics.visible_count : '—'}
+                    </div>
+                    <p className="text-[11px] text-zinc-500">Optical detection count</p>
+                  </div>
 
-              <div className="p-3.5 rounded-lg bg-zinc-900/40 border border-zinc-800 space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs text-zinc-400 font-medium">Risk Assessment</span>
-                  {activeFeed?.latest_metrics?.risk_status && (
-                    <Badge variant={getRiskVariant(activeFeed.latest_metrics.risk_status)}>{activeFeed.latest_metrics.risk_status}</Badge>
-                  )}
+                  <div className="p-3 rounded-lg bg-zinc-900/40 border border-zinc-800 flex items-center justify-between">
+                    <span className="text-xs text-zinc-400 font-medium">Peak Count</span>
+                    <div className="text-lg font-bold font-mono text-zinc-200">
+                      {curMetrics?.peak_count != null ? curMetrics.peak_count : '—'}
+                    </div>
+                  </div>
+
+                  <div className="p-3.5 rounded-lg bg-zinc-900/40 border border-zinc-800 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-zinc-400 font-medium">Risk Assessment</span>
+                      {curMetrics?.risk_status && (
+                        <Badge variant={getRiskVariant(curMetrics.risk_status)}>{curMetrics.risk_status}</Badge>
+                      )}
+                    </div>
+                    <div className="text-xs font-mono text-zinc-400 space-y-1 pt-1">
+                      <div className="flex justify-between">
+                        <span>Risk Score:</span>
+                        <span className="text-zinc-200 font-medium">
+                          {curMetrics?.risk_score != null
+                            ? `${curMetrics.risk_score.toFixed(1)} / 100`
+                            : '—'}
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>Density Score:</span>
+                        <span className="text-zinc-200 font-medium">
+                          {curMetrics?.density != null ? curMetrics.density : '—'}
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>Clusters:</span>
+                        <span className="text-zinc-200 font-medium">
+                          {curMetrics?.cluster_count != null
+                            ? `${curMetrics.cluster_count} (max ${curMetrics.largest_cluster})`
+                            : '—'}
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>Inference FPS:</span>
+                        <span className="text-zinc-200 font-medium">
+                          {curMetrics?.fps ? `${curMetrics.fps} FPS` : '—'}
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>Latency:</span>
+                        <span className="text-zinc-200 font-medium">
+                          {curMetrics?.latency_ms ? `${curMetrics.latency_ms}ms` : '—'}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
                 </div>
-                <div className="text-xs font-mono text-zinc-400 space-y-1 pt-1">
-                  <div className="flex justify-between">
-                    <span>Risk Score:</span>
-                    <span className="text-zinc-200 font-medium">
-                      {activeFeed?.latest_metrics?.risk_score != null
-                        ? `${activeFeed.latest_metrics.risk_score.toFixed(1)} / 100`
-                        : '—'}
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>Density Score:</span>
-                    <span className="text-zinc-200 font-medium">
-                      {activeFeed?.latest_metrics?.density != null ? activeFeed.latest_metrics.density : '—'}
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>Clusters:</span>
-                    <span className="text-zinc-200 font-medium">
-                      {activeFeed?.latest_metrics?.cluster_count != null
-                        ? `${activeFeed.latest_metrics.cluster_count} (max ${activeFeed.latest_metrics.largest_cluster})`
-                        : '—'}
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>Inference FPS:</span>
-                    <span className="text-zinc-200 font-medium">
-                      {activeFeed?.latest_metrics?.fps ? `${activeFeed.latest_metrics.fps} FPS` : '—'}
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>Latency:</span>
-                    <span className="text-zinc-200 font-medium">
-                      {activeFeed?.latest_metrics?.latency_ms ? `${activeFeed.latest_metrics.latency_ms}ms` : '—'}
-                    </span>
-                  </div>
-                </div>
-              </div>
-            </div>
+              );
+            })()}
           </div>
         </div>
       )}

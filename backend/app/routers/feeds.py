@@ -538,6 +538,8 @@ async def create_feed(
     except Exception as exc:
         with _feeds_lock:
             _feed_peaks.pop(feed_id, None)
+            if req.device_id:
+                _starting_devices.pop(req.device_id, None)
         raise HTTPException(status_code=500, detail=f"Failed to start feed: {exc}") from exc
 
     recorder = LiveFeedRecorder(feed_id)
@@ -666,7 +668,12 @@ async def _finalize_feed_session(
         sess = _active_feeds.pop(feed_id, None)
         _feed_peaks.pop(feed_id, None)
         _feed_latest_frames.pop(feed_id, None)
-        _feed_device_ids.pop(feed_id, None)
+        dev_id = _feed_device_ids.pop(feed_id, None)
+        if dev_id:
+            _starting_devices.pop(dev_id, None)
+        for did, fid in list(_starting_devices.items()):
+            if fid == feed_id:
+                _starting_devices.pop(did, None)
         _feed_device_names.pop(feed_id, None)
         recorder = _feed_recorders.pop(feed_id, None)
     if sess is None:
@@ -716,13 +723,14 @@ async def start_feed_recording(
 
         if feed_id in _feed_recorders:
             rec = _feed_recorders[feed_id]
+            dur = round(time.time() - rec._start_wall, 1) if rec._start_wall is not None else 0.0
             return {
                 "status": "already_recording",
                 "feed_id": feed_id,
                 "recording": True,
                 "session_uid": rec.session_uid,
                 "started_at": rec._start_wall,
-                "duration_s": round(time.time() - rec._start_wall, 1),
+                "duration_s": dur,
             }
 
         recorder = LiveFeedRecorder(feed_id)
@@ -811,7 +819,7 @@ async def get_feed_recording_status(
             "frames": 0,
         }
     is_actively_recording = recorder._start_wall is not None
-    duration = round(time.time() - recorder._start_wall, 1) if is_actively_recording else 0.0
+    duration = round(time.time() - recorder._start_wall, 1) if recorder._start_wall is not None else 0.0
     return {
         "feed_id": feed_id,
         "recording": is_actively_recording,

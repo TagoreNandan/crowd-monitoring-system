@@ -30,6 +30,7 @@ interface StreamPanelProps {
   isFocused?: boolean;
   onFocus?: (feed: FeedResponse) => void;
   onStop?: (feedId: string) => void;
+  onMetricsUpdate?: (metrics: VideoFrameMetrics) => void;
   className?: string;
 }
 
@@ -39,6 +40,7 @@ export const StreamPanel: React.FC<StreamPanelProps> = memo(({
   isFocused = false,
   onFocus,
   onStop,
+  onMetricsUpdate,
   className = '',
 }) => {
   const { notifyStorage } = useToast();
@@ -93,7 +95,11 @@ export const StreamPanel: React.FC<StreamPanelProps> = memo(({
         (envelope: WSEnvelope) => {
           if (envelope.type === 'feed.progress' && envelope.data) {
             const partial = envelope.data as PartialFeedMetrics;
-            setMetrics((prev) => ({ ...(prev ?? ({} as VideoFrameMetrics)), ...partial }));
+            setMetrics((prev) => {
+              const next = { ...(prev ?? ({} as VideoFrameMetrics)), ...partial };
+              if (onMetricsUpdate) onMetricsUpdate(next);
+              return next;
+            });
             if (envelope.data.frame_jpeg) setLiveFrame(envelope.data.frame_jpeg);
             if (envelope.data.heatmap_jpeg) setLiveHeatmap(envelope.data.heatmap_jpeg);
             if (envelope.data.combined_jpeg) setLiveCombined(envelope.data.combined_jpeg);

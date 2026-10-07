@@ -86,7 +86,7 @@ class LiveFeedRecorder:
         try:
             snap_dir = _RECORDING_DIR / self.session_uid / view
             snap_dir.mkdir(parents=True, exist_ok=True)
-            ts_ms = int((time.time() - self._start_wall) * 1000)
+            ts_ms = int((time.time() - self._start_wall) * 1000) if self._start_wall is not None else 0
             path = snap_dir / f"{ts_ms:010d}.jpg"
             cv2.imwrite(str(path), frame_bgr, [cv2.IMWRITE_JPEG_QUALITY, 90])
         except Exception:
@@ -102,7 +102,7 @@ class LiveFeedRecorder:
                 if self._writer is not None and self._writer.isOpened():
                     # Pad out any trailing elapsed time up to the stop moment with the last frame
                     if self._last_frame is not None:
-                        elapsed = max(0.0, time.time() - self._start_wall)
+                        elapsed = max(0.0, time.time() - self._start_wall) if self._start_wall is not None else 0.0
                         target_frames = max(1, round(elapsed * self._fps))
                         remaining = target_frames - self._frame_count
                         if remaining > 0:
