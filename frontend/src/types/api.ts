@@ -117,6 +117,8 @@ export interface JobRecordResponse {
   total_frames?: number | null;
   peak_count: number;
   latest_metrics?: VideoFrameMetrics | null;
+  storage_backend?: 's3' | 'local' | string | null;
+  s3_urls?: Record<string, string> | null;
   error?: string | null;
 }
 
