@@ -11,6 +11,7 @@ import { ActivityLogView } from './views/ActivityLogView';
 import { LoginView } from './views/LoginView';
 import { AuthModal } from './components/AuthModal';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { ToastProvider } from './context/ToastContext';
 import { getHealth, getStatus, connectWebSocket } from './lib/api';
 import type { Device, SystemHealth, SystemStatus, WSEnvelope } from './types/api';
 
@@ -190,7 +191,9 @@ function AppContent() {
 export function App() {
   return (
     <AuthProvider>
-      <AppContent />
+      <ToastProvider>
+        <AppContent />
+      </ToastProvider>
     </AuthProvider>
   );
 }

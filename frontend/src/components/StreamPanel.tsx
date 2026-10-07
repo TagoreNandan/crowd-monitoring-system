@@ -19,6 +19,7 @@ import {
   getStoredToken,
 } from '../lib/api';
 import { Button } from './ui/Button';
+import { useToast } from '../context/ToastContext';
 
 type ConnectionState = 'CONNECTING' | 'LIVE' | 'RECONNECTING' | 'STOPPED' | 'ERROR';
 type ViewMode = 'bbox' | 'heatmap' | 'combined';
@@ -40,6 +41,7 @@ export const StreamPanel: React.FC<StreamPanelProps> = memo(({
   onStop,
   className = '',
 }) => {
+  const { notifyStorage } = useToast();
   const [connectionState, setConnectionState] = useState<ConnectionState>('CONNECTING');
   const [metrics, setMetrics] = useState<VideoFrameMetrics | null>(feed.latest_metrics || null);
   const [liveFrame, setLiveFrame] = useState<string | null>(null);
@@ -110,7 +112,19 @@ export const StreamPanel: React.FC<StreamPanelProps> = memo(({
               setIsRecording(false);
               if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
               if (envelope.data?.summary) {
-                setLastRecording(envelope.data.summary);
+                const sum = envelope.data.summary;
+                setLastRecording(sum);
+                const isS3 = !!sum.s3_key;
+                notifyStorage({
+                  title: `Recording Saved (${displayName})`,
+                  message: `Captured ${sum.frame_count} frames (${sum.duration_s}s) of live feed telemetry.`,
+                  storageType: isS3 ? 's3' : 'local',
+                  storagePath: isS3 ? `s3://.../${sum.s3_key}` : `data/live_recordings/${sum.session_uid}_detection.mp4`,
+                  action: sum.download_url ? {
+                    label: 'Download MP4',
+                    onClick: handleDownload,
+                  } : undefined,
+                });
               }
             }
           } else if (envelope.type === 'feed.error') {

@@ -5,6 +5,7 @@ import type { JobRecordResponse, VideoFrameMetrics, WSEnvelope } from '../types/
 import { Badge } from '../components/ui/Badge';
 import { Button } from '../components/ui/Button';
 import { Progress } from '../components/ui/Progress';
+import { useToast } from '../context/ToastContext';
 
 type LocalViewMode = 'original' | VideoViewMode;
 
@@ -16,6 +17,7 @@ const VIEW_TABS: { key: LocalViewMode; label: string }[] = [
 ];
 
 export const VideoView: React.FC = () => {
+  const { notifyStorage } = useToast();
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const [uploading, setUploading] = useState<boolean>(false);
@@ -33,6 +35,19 @@ export const VideoView: React.FC = () => {
   const renewalTimerRef = useRef<any>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const videoObjectUrlRef = useRef<string | null>(null);
+  const notifiedJobIdRef = useRef<string | null>(null);
+
+  const handleJobCompletionNotification = useCallback((j: JobRecordResponse) => {
+    if (notifiedJobIdRef.current === j.job_id) return;
+    notifiedJobIdRef.current = j.job_id;
+    const isS3 = j.storage_backend === 's3';
+    notifyStorage({
+      title: 'Video Analysis Completed',
+      message: `Processed ${j.total_frames || j.current_frame || 0} video frames. All analytical overlays generated.`,
+      storageType: isS3 ? 's3' : 'local',
+      storagePath: isS3 ? `s3://.../jobs/${j.job_id}/` : `data/jobs/${j.job_id}/`,
+    });
+  }, [notifyStorage]);
 
   const refreshStream = useCallback(async (jobId: string, mode: VideoViewMode, keepPosition = false) => {
     try {
@@ -107,6 +122,7 @@ export const VideoView: React.FC = () => {
     setActiveStreamInfo(null);
     setActiveStreamUrl(null);
     setError(null);
+    notifiedJobIdRef.current = null;
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -165,7 +181,10 @@ export const VideoView: React.FC = () => {
           if (updatedJob.latest_metrics) {
             setMetrics(updatedJob.latest_metrics);
           }
-          if (updatedJob.status === 'completed' || updatedJob.status === 'failed') {
+          if (updatedJob.status === 'completed') {
+            clearInterval(pollTimerRef.current);
+            handleJobCompletionNotification(updatedJob);
+          } else if (updatedJob.status === 'failed') {
             clearInterval(pollTimerRef.current);
           }
         } catch (e) {

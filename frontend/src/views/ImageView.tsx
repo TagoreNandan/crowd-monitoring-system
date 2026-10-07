@@ -5,6 +5,7 @@ import { downloadFromSrc } from '../lib/download';
 import type { JobRecordResponse } from '../types/api';
 import { Badge } from '../components/ui/Badge';
 import { Button } from '../components/ui/Button';
+import { useToast } from '../context/ToastContext';
 
 type Tab = 'original' | 'detection' | 'density' | 'heatmap' | 'localization' | 'combined';
 
@@ -27,6 +28,7 @@ const DOWNLOAD_VIEW_NAMES: Record<Tab, string> = {
 };
 
 export const ImageView: React.FC = () => {
+  const { notifyStorage } = useToast();
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
@@ -81,6 +83,13 @@ export const ImageView: React.FC = () => {
       } else {
         setJobResult(response);
         setActiveTab('detection');
+        const isS3 = !!(response.result?.s3_urls && Object.keys(response.result.s3_urls).length > 0);
+        notifyStorage({
+          title: 'Image Analysis Completed',
+          message: `Identified ${Math.round(response.result?.count ?? response.result?.visible_count ?? 0)} people (${response.result?.risk?.status || 'SAFE'}). All overlays generated.`,
+          storageType: isS3 ? 's3' : 'local',
+          storagePath: isS3 ? `s3://.../jobs/${response.job_id}/` : `data/jobs/${response.job_id}/`,
+        });
       }
     } catch (err: any) {
       setError(err.message || 'Image analysis failed');

@@ -36,6 +36,7 @@ import type { Device, FeedResponse, PartialFeedMetrics, VideoFrameMetrics, WSEnv
 import { Badge } from '../components/ui/Badge';
 import { Button } from '../components/ui/Button';
 import { StreamPanel } from '../components/StreamPanel';
+import { useToast } from '../context/ToastContext';
 
 type ConnectionState = 'CONNECTING' | 'LIVE' | 'RECONNECTING' | 'STOPPED' | 'ERROR';
 type ViewMode = 'bbox' | 'heatmap' | 'combined';
@@ -47,6 +48,7 @@ interface FeedViewProps {
 }
 
 export const FeedView: React.FC<FeedViewProps> = ({ initialDevice }) => {
+  const { notifyStorage } = useToast();
   const [enrolledDevices, setEnrolledDevices] = useState<Device[]>([]);
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [_selectedDeviceId, setSelectedDeviceId] = useState<string>('');
@@ -207,7 +209,15 @@ export const FeedView: React.FC<FeedViewProps> = ({ initialDevice }) => {
             setIsRecording(false);
             if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
             if (envelope.data?.summary) {
-              setLastRecording(envelope.data.summary);
+              const sum = envelope.data.summary;
+              setLastRecording(sum);
+              const isS3 = !!sum.s3_key;
+              notifyStorage({
+                title: 'Live Stream Recording Saved',
+                message: `Recorded ${sum.frame_count} frames (${sum.duration_s}s) of crowd monitoring feed.`,
+                storageType: isS3 ? 's3' : 'local',
+                storagePath: isS3 ? `s3://.../${sum.s3_key}` : `data/live_recordings/${sum.session_uid}_detection.mp4`,
+              });
             }
           }
         } else if (envelope.type === 'feed.error') {
