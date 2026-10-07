@@ -72,6 +72,7 @@ _feed_latest_frames: dict[str, dict[str, str]] = {}
 _feed_recorders: dict[str, LiveFeedRecorder] = {}
 _feed_device_ids: dict[str, str] = {}
 _feed_device_names: dict[str, str] = {}
+_starting_devices: dict[str, str] = {}
 
 
 def get_active_feeds_snapshot() -> tuple[dict[str, RealtimeFeedSession], dict[str, float], dict[str, dict[str, str]]]:
@@ -311,9 +312,36 @@ async def create_feed(
                 if did == req.device_id and fid in _active_feeds:
                     logger.info("Device %s already streaming under feed %s", req.device_id, fid)
                     return _build_feed_response(_active_feeds[fid], req.source_type)
+            if req.device_id in _starting_devices:
+                pending_fid = _starting_devices[req.device_id]
+                logger.info("Device %s is already starting under feed %s", req.device_id, pending_fid)
+                if pending_fid in _active_feeds:
+                    return _build_feed_response(_active_feeds[pending_fid], req.source_type)
+                return FeedSessionResponse(
+                    feed_id=pending_fid,
+                    source_type=req.source_type,
+                    status="starting",
+                    description=f"Device {req.device_name or req.device_id} starting",
+                    is_live=True,
+                    frames_produced=0,
+                    error_count=0,
+                    started_at=time.time(),
+                    is_recording=True,
+                    device_id=req.device_id,
+                    device_name=req.device_name,
+                )
+            feed_id = f"feed_{uuid.uuid4().hex[:8]}"
+            _starting_devices[req.device_id] = feed_id
+    else:
+        feed_id = f"feed_{uuid.uuid4().hex[:8]}"
 
-    feed_id = f"feed_{uuid.uuid4().hex[:8]}"
-    source = await asyncio.to_thread(_resolve_source, req.source_type, req.source_uri)
+    try:
+        source = await asyncio.to_thread(_resolve_source, req.source_type, req.source_uri)
+    except Exception:
+        if req.device_id:
+            with _feeds_lock:
+                _starting_devices.pop(req.device_id, None)
+        raise
 
     settings = get_settings()
     with _feeds_lock:
@@ -518,6 +546,7 @@ async def create_feed(
         _feed_recorders[feed_id] = recorder
         if req.device_id:
             _feed_device_ids[feed_id] = req.device_id
+            _starting_devices.pop(req.device_id, None)
         if req.device_name:
             _feed_device_names[feed_id] = req.device_name
     logger.info("Auto-recording initialized for feed %s (session %s)", feed_id, recorder.session_uid)
@@ -781,11 +810,13 @@ async def get_feed_recording_status(
             "duration_s": 0,
             "frames": 0,
         }
+    is_actively_recording = recorder._start_wall is not None
+    duration = round(time.time() - recorder._start_wall, 1) if is_actively_recording else 0.0
     return {
         "feed_id": feed_id,
-        "recording": True,
+        "recording": is_actively_recording,
         "session_uid": recorder.session_uid,
-        "duration_s": round(time.time() - recorder._start_wall, 1),
+        "duration_s": duration,
         "frames": recorder._frame_count,
     }
 

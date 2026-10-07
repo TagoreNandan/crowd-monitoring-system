@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   Radio,
   Play,
@@ -8,9 +8,6 @@ import {
   Users,
   Eye,
   Camera,
-  Circle,
-  Download,
-  CheckCircle2,
   X,
   LayoutGrid,
   Maximize2,
@@ -23,32 +20,20 @@ import {
 import {
   createFeed,
   stopFeed,
-  connectWebSocket,
   uploadFeedVideo,
   getDevices,
   listFeeds,
-  startFeedRecording,
-  stopFeedRecording,
-  getFeedRecordingStatus,
-  getStoredToken,
 } from '../lib/api';
-import type { Device, FeedResponse, PartialFeedMetrics, VideoFrameMetrics, WSEnvelope, RecordingSummary } from '../types/api';
+import type { Device, FeedResponse } from '../types/api';
 import { Badge } from '../components/ui/Badge';
 import { Button } from '../components/ui/Button';
 import { StreamPanel } from '../components/StreamPanel';
-import { useToast } from '../context/ToastContext';
-
-type ConnectionState = 'CONNECTING' | 'LIVE' | 'RECONNECTING' | 'STOPPED' | 'ERROR';
-type ViewMode = 'bbox' | 'heatmap' | 'combined';
-
-const MAX_RECONNECT_ATTEMPTS = 3;
 
 interface FeedViewProps {
   initialDevice?: Device | null;
 }
 
 export const FeedView: React.FC<FeedViewProps> = ({ initialDevice }) => {
-  const { notifyStorage } = useToast();
   const [enrolledDevices, setEnrolledDevices] = useState<Device[]>([]);
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [_selectedDeviceId, setSelectedDeviceId] = useState<string>('');
@@ -78,34 +63,7 @@ export const FeedView: React.FC<FeedViewProps> = ({ initialDevice }) => {
   // Single-feed detailed view state (for the focused feed or primary feed)
   const [activeFeed, setActiveFeed] = useState<FeedResponse | null>(null);
   const [starting, setStarting] = useState<boolean>(false);
-  const [connectionState, setConnectionState] = useState<ConnectionState>('STOPPED');
-  const [metrics, setMetrics] = useState<VideoFrameMetrics | null>(null);
-  const [liveFrame, setLiveFrame] = useState<string | null>(null);
-  const [liveHeatmap, setLiveHeatmap] = useState<string | null>(null);
-  const [liveCombined, setLiveCombined] = useState<string | null>(null);
-  const [viewMode, setViewMode] = useState<ViewMode>('bbox');
   const [error, setError] = useState<string | null>(null);
-
-  // Manual on-demand recording state for single focus
-  const [isRecording, setIsRecording] = useState<boolean>(false);
-  const [recordingDuration, setRecordingDuration] = useState<number>(0);
-  const [recordLoading, setRecordLoading] = useState<boolean>(false);
-  const [lastRecording, setLastRecording] = useState<RecordingSummary | null>(null);
-  const recordingTimerRef = useRef<any>(null);
-
-  const wsRef = useRef<WebSocket | null>(null);
-  const intentionalStopRef = useRef<boolean>(false);
-  const reconnectAttemptsRef = useRef<number>(0);
-  const feedIdRef = useRef<string | null>(null);
-  const reconnectTimerRef = useRef<any>(null);
-
-  const startRecordingTimer = useCallback((fromSeconds: number) => {
-    if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
-    setRecordingDuration(fromSeconds);
-    recordingTimerRef.current = setInterval(() => {
-      setRecordingDuration((prev) => prev + 1);
-    }, 1000);
-  }, []);
 
   const applyDeviceSource = (dev: Device) => {
     if (dev.stream_type.toUpperCase() === 'WEBCAM') {
@@ -119,8 +77,6 @@ export const FeedView: React.FC<FeedViewProps> = ({ initialDevice }) => {
       setSourceUri(dev.stream_url);
     }
   };
-
-  const connectedFeedIdRef = useRef<string | null>(null);
 
   // Poll list of active feeds from backend with reference stability
   const refreshActiveFeeds = useCallback(async () => {
@@ -141,15 +97,6 @@ export const FeedView: React.FC<FeedViewProps> = ({ initialDevice }) => {
         }
         return running;
       });
-
-      // If activeFeed stopped running, update single view
-      if (feedIdRef.current && !running.some((f) => f.feed_id === feedIdRef.current)) {
-        setActiveFeed(null);
-        feedIdRef.current = null;
-        connectedFeedIdRef.current = null;
-        setConnectionState('STOPPED');
-        if (wsRef.current) wsRef.current.close();
-      }
     } catch (err) {
       console.error('Failed to query active feeds:', err);
     }
@@ -172,138 +119,16 @@ export const FeedView: React.FC<FeedViewProps> = ({ initialDevice }) => {
     return () => clearInterval(interval);
   }, [initialDevice, refreshActiveFeeds]);
 
-  // Connect WebSocket for single detailed view (guards against redundant reconnects)
-  const attachSocket = useCallback((feedId: string) => {
-    if (connectedFeedIdRef.current === feedId && wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      return;
-    }
-    connectedFeedIdRef.current = feedId;
-    intentionalStopRef.current = false;
-    if (wsRef.current) wsRef.current.close();
-
-    wsRef.current = connectWebSocket(
-      `/ws/feeds/${feedId}`,
-      (envelope: WSEnvelope) => {
-        if (envelope.type === 'feed.progress' && envelope.data) {
-          const partial = envelope.data as PartialFeedMetrics;
-          setMetrics((prev) => ({ ...(prev ?? ({} as VideoFrameMetrics)), ...partial }));
-          if (envelope.data.frame_jpeg) setLiveFrame(envelope.data.frame_jpeg);
-          if (envelope.data.heatmap_jpeg) setLiveHeatmap(envelope.data.heatmap_jpeg);
-          if (envelope.data.combined_jpeg) setLiveCombined(envelope.data.combined_jpeg);
-          reconnectAttemptsRef.current = 0;
-          setConnectionState('LIVE');
-        } else if (envelope.type === 'feed.status') {
-          if (envelope.data?.status === 'stopped') {
-            intentionalStopRef.current = true;
-            connectedFeedIdRef.current = null;
-            setConnectionState('STOPPED');
-            setMetrics(null);
-            setLiveFrame(null);
-            setLiveHeatmap(null);
-            setLiveCombined(null);
-            setIsRecording(false);
-            if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
-          } else if (envelope.data?.event === 'recording_started') {
-            setIsRecording(true);
-          } else if (envelope.data?.event === 'recording_stopped') {
-            setIsRecording(false);
-            if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
-            if (envelope.data?.summary) {
-              const sum = envelope.data.summary;
-              setLastRecording(sum);
-              const isS3 = !!sum.s3_key;
-              notifyStorage({
-                title: 'Live Stream Recording Saved',
-                message: `Recorded ${sum.frame_count} frames (${sum.duration_s}s) of crowd monitoring feed.`,
-                storageType: isS3 ? 's3' : 'local',
-                storagePath: isS3 ? `s3://.../${sum.s3_key}` : `data/live_recordings/${sum.session_uid}_detection.mp4`,
-              });
-            }
-          }
-        } else if (envelope.type === 'feed.error') {
-          setError(envelope.data?.message || 'Feed processing error');
-          setConnectionState('ERROR');
-        }
-      },
-      (connected: boolean) => {
-        if (connected) {
-          reconnectAttemptsRef.current = 0;
-          setConnectionState((prev) => (prev === 'LIVE' ? prev : 'CONNECTING'));
-          return;
-        }
-        if (intentionalStopRef.current) {
-          connectedFeedIdRef.current = null;
-          setConnectionState('STOPPED');
-          return;
-        }
-        if (reconnectAttemptsRef.current >= MAX_RECONNECT_ATTEMPTS) {
-          connectedFeedIdRef.current = null;
-          setConnectionState('ERROR');
-          setError('Lost connection to the real-time feed and could not reconnect.');
-          return;
-        }
-        setConnectionState('RECONNECTING');
-        reconnectAttemptsRef.current += 1;
-        reconnectTimerRef.current = setTimeout(() => {
-          if (!intentionalStopRef.current && feedIdRef.current) {
-            attachSocket(feedIdRef.current);
-          }
-        }, 2000);
-      }
-    );
-  }, []);
-
-  // When focused feed changes, update active single feed (only connects in Single view mode!)
+  // Sync focused feed
   useEffect(() => {
-    // In grid mode, the individual StreamPanels handle their own WebSockets; close single socket
-    if (isShowingGrid) {
-      if (wsRef.current) {
-        wsRef.current.close();
-        wsRef.current = null;
-      }
-      connectedFeedIdRef.current = null;
-      return;
-    }
-
     const targetFeedId = focusedFeedId || (activeFeeds.length > 0 ? activeFeeds[0].feed_id : null);
     if (!targetFeedId) {
-      if (wsRef.current) {
-        wsRef.current.close();
-        wsRef.current = null;
-      }
-      connectedFeedIdRef.current = null;
       setActiveFeed(null);
-      setConnectionState('STOPPED');
       return;
     }
-
-    const feed = activeFeeds.find((f) => f.feed_id === targetFeedId);
-    if (feed) {
-      setActiveFeed(feed);
-      feedIdRef.current = feed.feed_id;
-      if (connectedFeedIdRef.current !== feed.feed_id) {
-        setConnectionState('CONNECTING');
-        attachSocket(feed.feed_id);
-
-        getFeedRecordingStatus(feed.feed_id)
-          .then((status) => {
-            if (status.recording) {
-              setIsRecording(true);
-              startRecordingTimer(Math.floor(status.duration_s));
-            }
-          })
-          .catch(() => {});
-      }
-    }
-  }, [isShowingGrid, focusedFeedId, activeFeeds, attachSocket, startRecordingTimer]);
-
-  useEffect(() => {
-    return () => {
-      if (wsRef.current) wsRef.current.close();
-      if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
-      if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
-    };
-  }, []);
+    const feed = activeFeeds.find((f) => f.feed_id === targetFeedId) || null;
+    setActiveFeed(feed);
+  }, [focusedFeedId, activeFeeds]);
 
   // Toggle stream for a fleet device (Start or Stop)
   const handleToggleDeviceStream = async (dev: Device) => {
@@ -399,46 +224,6 @@ export const FeedView: React.FC<FeedViewProps> = ({ initialDevice }) => {
       await refreshActiveFeeds();
     } catch (err: any) {
       console.error('Failed to stop feed:', err);
-    }
-  };
-
-  // Recording timer formatting
-  const formatDuration = (seconds: number) => {
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
-  };
-
-  const handleStartRecording = async () => {
-    if (!activeFeed) return;
-    setRecordLoading(true);
-    setError(null);
-    try {
-      await startFeedRecording(activeFeed.feed_id);
-      setIsRecording(true);
-      setLastRecording(null);
-      startRecordingTimer(0);
-    } catch (err: any) {
-      setError(err.message || 'Failed to start recording');
-    } finally {
-      setRecordLoading(false);
-    }
-  };
-
-  const handleStopRecording = async () => {
-    if (!activeFeed) return;
-    setRecordLoading(true);
-    try {
-      const res = await stopFeedRecording(activeFeed.feed_id);
-      setIsRecording(false);
-      if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
-      if (res.summary) {
-        setLastRecording(res.summary);
-      }
-    } catch (err: any) {
-      setError(err.message || 'Failed to stop recording');
-    } finally {
-      setRecordLoading(false);
     }
   };
 
@@ -912,116 +697,23 @@ export const FeedView: React.FC<FeedViewProps> = ({ initialDevice }) => {
           {/* Viewport & Side Telemetry Layout */}
           <div className="flex-1 min-h-0 flex flex-col lg:flex-row gap-3 overflow-hidden">
             <div className="flex-1 min-h-0 flex flex-col gap-2 overflow-hidden">
-              <div className="relative flex-1 min-h-0 rounded-lg border border-zinc-800 bg-black flex items-center justify-center overflow-hidden">
-                {/* Floating Glassmorphic View Mode Switcher in Focus View */}
-                <div className="absolute top-2.5 left-2.5 z-20 flex items-center bg-zinc-950/75 backdrop-blur-md rounded-md p-0.5 border border-zinc-700/60 shadow-lg text-xs font-mono select-none">
-                  <button
-                    onClick={() => setViewMode('bbox')}
-                    className={`px-3 py-1 rounded transition-all cursor-pointer ${
-                      viewMode === 'bbox' ? 'bg-zinc-800 text-zinc-100 font-semibold shadow-sm' : 'text-zinc-400 hover:text-zinc-200'
-                    }`}
-                  >
-                    Box
-                  </button>
-                  <button
-                    onClick={() => setViewMode('heatmap')}
-                    className={`px-3 py-1 rounded transition-all cursor-pointer ${
-                      viewMode === 'heatmap' ? 'bg-zinc-800 text-zinc-100 font-semibold shadow-sm' : 'text-zinc-400 hover:text-zinc-200'
-                    }`}
-                  >
-                    Heat
-                  </button>
-                  <button
-                    onClick={() => setViewMode('combined')}
-                    className={`px-3 py-1 rounded transition-all cursor-pointer ${
-                      viewMode === 'combined' ? 'bg-zinc-800 text-zinc-100 font-semibold shadow-sm' : 'text-zinc-400 hover:text-zinc-200'
-                    }`}
-                  >
-                    Blend
-                  </button>
-                </div>
-
-                {/* Top Right Live & Rec Badges */}
-                <div className="absolute top-2.5 right-2.5 z-20 flex items-center gap-2 font-mono text-xs">
-                  {connectionState === 'LIVE' && (
-                    <span className="flex items-center gap-1.5 px-2.5 py-1 rounded bg-zinc-950/80 border border-zinc-800 text-emerald-400 backdrop-blur-sm">
-                      <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                      LIVE
-                    </span>
-                  )}
-                  {isRecording && (
-                    <span className="flex items-center gap-1.5 px-2.5 py-1 rounded bg-rose-950/90 border border-rose-800 text-rose-400 animate-pulse backdrop-blur-sm">
-                      <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-ping" />
-                      REC {formatDuration(recordingDuration)}
-                    </span>
-                  )}
-                </div>
-
-                {/* Video Image */}
-                {currentDisplayedFrame && (connectionState === 'LIVE' || connectionState === 'RECONNECTING') ? (
-                  <img src={currentDisplayedFrame} alt="live feed" className="w-full h-full object-contain max-h-full" />
-                ) : connectionState === 'CONNECTING' || connectionState === 'RECONNECTING' ? (
-                  <div className="p-8 text-center space-y-3 font-mono">
-                    <RefreshCw className="w-6 h-6 text-zinc-400 animate-spin mx-auto" />
-                    <p className="text-xs text-zinc-500">
-                      {connectionState === 'CONNECTING' ? 'Connecting to feed…' : 'Reconnecting…'}
-                    </p>
-                  </div>
-                ) : (
-                  <div className="p-8 text-center space-y-3 font-mono">
-                    <div className="w-10 h-10 rounded-full bg-zinc-900 border border-zinc-800 flex items-center justify-center mx-auto text-zinc-500">
-                      <Radio className="w-5 h-5" />
-                    </div>
-                    <div>
-                      <h3 className="text-sm font-semibold text-zinc-300">Feed Offline</h3>
-                      <p className="text-xs text-zinc-500 max-w-xs mx-auto mt-1">
-                        Toggle a camera in the fleet bar above to begin streaming.
-                      </p>
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {/* Single View Recording Download Banner */}
-              {lastRecording && (
-                <div className="flex items-center justify-between p-2.5 rounded-lg bg-zinc-900/90 border border-emerald-900/60 text-xs shrink-0">
-                  <div className="flex items-center gap-2">
-                    <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-                    <div>
-                      <span className="text-zinc-200 font-medium">Live recording saved successfully</span>
-                      <span className="text-zinc-400 ml-2 font-mono">
-                        {lastRecording.duration_s}s • {lastRecording.frame_count} frames
-                      </span>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    {lastRecording.download_url && (
-                      <a
-                        href={(() => {
-                          const url = lastRecording.download_url;
-                          const token = getStoredToken();
-                          if (!token || url.startsWith('http://') || url.startsWith('https://')) return url;
-                          const sep = url.includes('?') ? '&' : '?';
-                          return `${url}${sep}token=${encodeURIComponent(token)}`;
-                        })()}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-zinc-800 hover:bg-zinc-700 text-zinc-100 rounded text-xs font-medium transition-colors border border-zinc-700 cursor-pointer"
-                      >
-                        <Download className="w-3.5 h-3.5" />
-                        Download Video
-                      </a>
-                    )}
-                    <button
-                      onClick={() => setLastRecording(null)}
-                      className="text-zinc-500 hover:text-zinc-300 p-1 cursor-pointer"
-                      title="Dismiss"
-                    >
-                      <X className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                </div>
-              )}
+              {(() => {
+                const targetFeed = activeFeed || (activeFeeds.length > 0 ? activeFeeds[0] : null);
+                if (!targetFeed) return null;
+                return (
+                  <StreamPanel
+                    key={targetFeed.feed_id}
+                    feed={targetFeed}
+                    isFocused={true}
+                    onFocus={() => {
+                      setFocusedFeedId(null);
+                      setViewModePreference('grid');
+                    }}
+                    onStop={handleStopSingleFeed}
+                    className="h-full"
+                  />
+                );
+              })()}
             </div>
 
             {/* Right Telemetry Column (Deep Analytics) */}
@@ -1032,7 +724,7 @@ export const FeedView: React.FC<FeedViewProps> = ({ initialDevice }) => {
                   Estimated Crowd
                 </span>
                 <div className="text-3xl font-bold font-mono text-zinc-100">
-                  {connectionState === 'LIVE' && metrics?.estimated_count != null ? metrics.estimated_count : '—'}
+                  {activeFeed?.latest_metrics?.estimated_count != null ? Math.round(activeFeed.latest_metrics.estimated_count) : '—'}
                 </div>
                 <p className="text-[11px] text-zinc-500">Spatial density estimate</p>
               </div>
@@ -1043,11 +735,7 @@ export const FeedView: React.FC<FeedViewProps> = ({ initialDevice }) => {
                   Visible People
                 </span>
                 <div className="text-2xl font-bold font-mono text-zinc-200">
-                  {connectionState === 'LIVE'
-                    ? metrics?.visible_count !== undefined && metrics?.visible_count !== null
-                      ? metrics.visible_count
-                      : 'N/A'
-                    : '—'}
+                  {activeFeed?.latest_metrics?.visible_count != null ? activeFeed.latest_metrics.visible_count : '—'}
                 </div>
                 <p className="text-[11px] text-zinc-500">Optical detection count</p>
               </div>
@@ -1055,90 +743,54 @@ export const FeedView: React.FC<FeedViewProps> = ({ initialDevice }) => {
               <div className="p-3 rounded-lg bg-zinc-900/40 border border-zinc-800 flex items-center justify-between">
                 <span className="text-xs text-zinc-400 font-medium">Peak Count</span>
                 <div className="text-lg font-bold font-mono text-zinc-200">
-                  {connectionState === 'LIVE' ? (metrics?.peak_count ?? '—') : '—'}
+                  {activeFeed?.latest_metrics?.peak_count != null ? activeFeed.latest_metrics.peak_count : '—'}
                 </div>
               </div>
 
               <div className="p-3.5 rounded-lg bg-zinc-900/40 border border-zinc-800 space-y-2">
                 <div className="flex items-center justify-between">
                   <span className="text-xs text-zinc-400 font-medium">Risk Assessment</span>
-                  {connectionState === 'LIVE' && metrics?.risk_status && (
-                    <Badge variant={getRiskVariant(metrics.risk_status)}>{metrics.risk_status}</Badge>
+                  {activeFeed?.latest_metrics?.risk_status && (
+                    <Badge variant={getRiskVariant(activeFeed.latest_metrics.risk_status)}>{activeFeed.latest_metrics.risk_status}</Badge>
                   )}
                 </div>
                 <div className="text-xs font-mono text-zinc-400 space-y-1 pt-1">
                   <div className="flex justify-between">
                     <span>Risk Score:</span>
                     <span className="text-zinc-200 font-medium">
-                      {connectionState === 'LIVE' && metrics?.risk_score != null
-                        ? `${metrics.risk_score.toFixed(1)} / 100`
+                      {activeFeed?.latest_metrics?.risk_score != null
+                        ? `${activeFeed.latest_metrics.risk_score.toFixed(1)} / 100`
                         : '—'}
                     </span>
                   </div>
                   <div className="flex justify-between">
                     <span>Density Score:</span>
                     <span className="text-zinc-200 font-medium">
-                      {connectionState === 'LIVE' && metrics?.density != null ? metrics.density : '—'}
+                      {activeFeed?.latest_metrics?.density != null ? activeFeed.latest_metrics.density : '—'}
                     </span>
                   </div>
                   <div className="flex justify-between">
                     <span>Clusters:</span>
                     <span className="text-zinc-200 font-medium">
-                      {connectionState === 'LIVE' && metrics?.cluster_count != null
-                        ? `${metrics.cluster_count} (max ${metrics.largest_cluster})`
+                      {activeFeed?.latest_metrics?.cluster_count != null
+                        ? `${activeFeed.latest_metrics.cluster_count} (max ${activeFeed.latest_metrics.largest_cluster})`
                         : '—'}
                     </span>
                   </div>
                   <div className="flex justify-between">
                     <span>Inference FPS:</span>
                     <span className="text-zinc-200 font-medium">
-                      {connectionState === 'LIVE' && metrics?.fps ? `${metrics.fps} FPS` : '—'}
+                      {activeFeed?.latest_metrics?.fps ? `${activeFeed.latest_metrics.fps} FPS` : '—'}
                     </span>
                   </div>
                   <div className="flex justify-between">
                     <span>Latency:</span>
                     <span className="text-zinc-200 font-medium">
-                      {connectionState === 'LIVE' && metrics?.latency_ms ? `${metrics.latency_ms}ms` : '—'}
+                      {activeFeed?.latest_metrics?.latency_ms ? `${activeFeed.latest_metrics.latency_ms}ms` : '—'}
                     </span>
                   </div>
                 </div>
               </div>
-
-              {/* Focus Controls */}
-              {activeFeed && (
-                <div className="pt-1 flex items-center gap-2">
-                  {!isRecording ? (
-                    <Button
-                      variant="outline"
-                      onClick={handleStartRecording}
-                      isLoading={recordLoading}
-                      className="w-full border-rose-900/60 hover:bg-rose-950/40 text-rose-400 hover:text-rose-300 text-xs cursor-pointer"
-                    >
-                      <Circle className="w-3 h-3 mr-1.5 fill-rose-500 text-rose-500" />
-                      Record
-                    </Button>
-                  ) : (
-                    <Button
-                      variant="destructive"
-                      onClick={handleStopRecording}
-                      isLoading={recordLoading}
-                      className="w-full text-xs cursor-pointer"
-                    >
-                      <Square className="w-3 h-3 mr-1.5 fill-current" />
-                      Stop Rec
-                    </Button>
-                  )}
-
-                  <Button
-                    variant="outline"
-                    onClick={() => handleStopSingleFeed(activeFeed.feed_id)}
-                    className="border-zinc-800 text-zinc-400 hover:text-red-400 text-xs cursor-pointer"
-                  >
-                    <Square className="w-3 h-3 mr-1 text-zinc-400" />
-                    Stop
-                  </Button>
-                </div>
-              )}
             </div>
           </div>
         </div>

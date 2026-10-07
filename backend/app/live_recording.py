@@ -39,7 +39,7 @@ class LiveFeedRecorder:
         self._local_path: Optional[Path] = None
         self._frame_count = 0
         self._fps = float(get_settings().live_feed_recording_fps)
-        self._start_wall = time.time()
+        self._start_wall: Optional[float] = None
         self._last_frame: Optional[np.ndarray] = None
         self._finalized = False
         self._lock = threading.Lock()
@@ -53,6 +53,9 @@ class LiveFeedRecorder:
             if self._finalized:
                 return
             try:
+                if self._start_wall is None:
+                    self._start_wall = time.time()
+
                 if self._writer is None or not self._writer.isOpened():
                     h, w = frame_bgr.shape[:2]
                     self._local_path = _RECORDING_DIR / f"{self.session_uid}_detection.mp4"
@@ -164,7 +167,7 @@ class LiveFeedRecorder:
         return self.get_summary()
 
     def get_summary(self) -> dict[str, Any]:
-        duration_s = round(time.time() - self._start_wall, 2)
+        duration_s = round(time.time() - self._start_wall, 2) if self._start_wall is not None else 0.0
         url = self.download_url
         if not url and self.s3_key and storage.is_s3_enabled():
             try:
