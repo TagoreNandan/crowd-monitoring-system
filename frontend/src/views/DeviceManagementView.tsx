@@ -578,25 +578,25 @@ export const DeviceManagementView: React.FC<DeviceManagementViewProps> = ({ onSe
                   </div>
 
                   {isAdmin && (
-                    <div className="flex items-center gap-1">
+                    <div className="flex items-center gap-1.5">
                       <Button
-                        variant="ghost"
+                        variant="outline"
                         size="sm"
                         onClick={() => handleOpenEditModal(device)}
-                        className="text-zinc-400 hover:text-zinc-100 p-1.5 h-7 w-7"
-                        title="Edit Camera"
+                        className="text-zinc-300 hover:text-white hover:bg-zinc-800 border-zinc-800 h-8 w-8 p-0 flex items-center justify-center cursor-pointer"
+                        title="Edit Camera Details"
                       >
-                        <Edit3 className="w-3.5 h-3.5" />
+                        <Edit3 className="w-3.5 h-3.5 text-zinc-300 hover:text-cyan-400 transition-colors" />
                       </Button>
 
                       <Button
-                        variant="ghost"
+                        variant="outline"
                         size="sm"
                         onClick={() => handleDeleteDevice(device.device_id, device.name)}
-                        className="text-zinc-400 hover:text-red-400 p-1.5 h-7 w-7"
+                        className="text-zinc-400 hover:text-rose-300 hover:bg-rose-950/40 border-zinc-800 hover:border-rose-900/60 h-8 w-8 p-0 flex items-center justify-center cursor-pointer"
                         title="Decommission Camera"
                       >
-                        <Trash2 className="w-3.5 h-3.5" />
+                        <Trash2 className="w-3.5 h-3.5 transition-colors" />
                       </Button>
                     </div>
                   )}
