@@ -189,7 +189,7 @@ def test_s3_download_returns_410_when_object_is_deleted(monkeypatch, client):
     )
 
     assert response.status_code == 410
-    assert response.json()["detail"] == "The requested output is no longer available"
+    assert response.json()["error"]["message"] == "The requested output is no longer available"
 
 
 def test_s3_download_returns_503_for_storage_errors(monkeypatch, client):
@@ -213,7 +213,7 @@ def test_s3_download_returns_503_for_storage_errors(monkeypatch, client):
     )
 
     assert response.status_code == 503
-    assert response.json()["detail"] == "The output storage service is temporarily unavailable"
+    assert response.json()["error"]["message"] == "The output storage service is temporarily unavailable"
 
 
 def test_rows_without_outputs_return_404(client):
@@ -228,6 +228,6 @@ def test_rows_without_outputs_return_404(client):
     assert response.status_code == 404
 
 
-def test_activity_requires_authentication(client):
-    response = client.get("/api/activity")
+def test_activity_requires_authentication(anon_client):
+    response = anon_client.get("/api/activity")
     assert response.status_code == 401

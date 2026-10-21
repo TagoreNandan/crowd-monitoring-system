@@ -41,7 +41,16 @@ from pydantic import BaseModel, Field
 from crowd_monitoring.detection import PersonDetector
 from crowd_monitoring.overlay import draw_density_heatmap_overlay, draw_person_boxes, render_video_overlay
 from crowd_monitoring.pipeline import CrowdAnalysisPipeline
-from crowd_monitoring.streaming import CameraSource, FileVideoSource, FrameSource, RTSPSource, RealtimeFeedSession
+from crowd_monitoring.streaming import (
+    CameraSource,
+    FailoverFrameSource,
+    FileVideoSource,
+    FrameSource,
+    RTSPSource,
+    RealtimeFeedSession,
+    is_live_stream_url,
+)
+from crowd_monitoring.streaming.failover import MODE_AUTO, MODE_BACKUP
 from crowd_monitoring.streaming.realtime import DensityResult, FastResult, RealtimeError
 from crowd_monitoring.tracking import PersonTracker, TrackedPerson
 
@@ -53,7 +62,8 @@ from ..live_recording import LiveFeedRecorder
 from ..pipeline_runtime import PipelineRuntime
 from ..schemas.ws import ErrorData, WSEnvelope, WSEventType
 from ..settings import get_settings
-from ..utils import save_upload_to_tempfile
+from ..paths import DEFAULT_SAMPLE_VIDEO, EXAMPLES_DIR, LIVE_RECORDINGS_DIR, find_local_file, is_within
+from ..utils import parse_s3_source, redact_presigned_url, save_upload_to_tempfile
 from ..vision_utils import encode_jpeg_data_url
 from ..ws.manager import ConnectionManager
 
@@ -74,6 +84,39 @@ _feed_device_ids: dict[str, str] = {}
 _feed_device_names: dict[str, str] = {}
 _starting_devices: dict[str, str] = {}
 
+# Per-drone backup archives for live flights: when drone_N's stream drops,
+# FailoverFrameSource loops this clip until the link recovers. Keyed by fleet
+# device_id (or feed_id), case-insensitive. Bare keys resolve against
+# S3_BUCKET_NAME; full s3://bucket/key URIs and local paths also work.
+# A request's explicit `fallback_uri` wins; unmapped feeds fall back to
+# settings.feed_failover_source.
+DRONE_FALLBACK_VIDEOS: dict[str, str] = {
+    "drone_1": "failsafe/backup_1.mp4",
+    "drone_2": "failsafe/backup_2.mp4",
+    "drone_3": "failsafe/backup_3.mp4",
+    "drone_4": "failsafe/backup_4.mp4",
+    "drone_5": "failsafe/backup_5.mp4",
+    "drone_6": "failsafe/backup_6.mp4",
+}
+
+
+def drone_fallback_uri(*ids: Optional[str]) -> Optional[str]:
+    """First DRONE_FALLBACK_VIDEOS entry matching any of `ids`, else None."""
+    for ident in ids:
+        if ident and ident.strip().lower() in DRONE_FALLBACK_VIDEOS:
+            return DRONE_FALLBACK_VIDEOS[ident.strip().lower()]
+    return None
+
+
+def presigned_s3_video(uri: str, expires_in: int = 86400) -> tuple[str, str]:
+    """Sign an S3 video (s3://bucket/key or bare key) on the fly for OpenCV.
+    Returns (signed_url, redacted s3:// description safe to log/display)."""
+    bucket, key = parse_s3_source(uri)
+    url = storage.presigned_url(
+        key=key, bucket=bucket, expires_in=expires_in, response_content_type="video/mp4"
+    )
+    return url, f"s3://{bucket}/{key}"
+
 
 def get_active_feeds_snapshot() -> tuple[dict[str, RealtimeFeedSession], dict[str, float], dict[str, dict[str, str]]]:
     """Return a thread-safe snapshot of all active feeds and their state."""
@@ -91,6 +134,17 @@ class CreateFeedRequest(BaseModel):
     loop: bool = Field(True, description="Whether to loop video/sample source continuously")
     device_id: Optional[str] = Field(None, description="Optional associated fleet device ID")
     device_name: Optional[str] = Field(None, description="Optional associated fleet device name")
+    fallback_uri: Optional[str] = Field(
+        None,
+        description=(
+            "Backup video (S3 key, s3:// URI, or local path) played automatically if a live "
+            "RTSP/RTMP stream drops. Defaults to the server's feed_failover_source; '' disables."
+        ),
+    )
+
+
+class FeedSourceModeRequest(BaseModel):
+    mode: str = Field(..., pattern="^(auto|backup)$", description="'auto' (failover on drop) or 'backup' (force backup)")
 
 
 class FeedMetricsResponse(BaseModel):
@@ -132,6 +186,10 @@ class FeedSessionResponse(BaseModel):
     latest_metrics: Optional[FeedMetricsResponse] = None
     device_id: Optional[str] = None
     device_name: Optional[str] = None
+    # "LIVE" | "BACKUP_ACTIVE" | "SIGNAL_LOST" (see crowd_monitoring.streaming.failover)
+    source_status: str = "LIVE"
+    failover_enabled: bool = False
+    source_mode: Optional[str] = None
 
 
 def _build_feed_response(session: RealtimeFeedSession, source_type: str) -> FeedSessionResponse:
@@ -185,6 +243,9 @@ def _build_feed_response(session: RealtimeFeedSession, source_type: str) -> Feed
         latest_metrics=latest_metrics,
         device_id=device_id,
         device_name=device_name,
+        source_status=session.source_status,
+        failover_enabled=isinstance(session.source, FailoverFrameSource),
+        source_mode=session.source.mode if isinstance(session.source, FailoverFrameSource) else None,
     )
 
 
@@ -232,6 +293,35 @@ def _resolve_source(source_type: str, source_uri: Optional[str]) -> FrameSource:
         idx = int(source_uri) if source_uri and source_uri.isdigit() else 0
         return CameraSource(device_index=idx)
 
+    # S3 Source Resolution (explicit source_type == 's3', s3:// URI, or object key like failsafe/drone_standby.mp4)
+    is_s3_type = (source_type or "").lower() == "s3"
+    is_s3_uri = bool(source_uri and source_uri.strip().startswith("s3://"))
+    is_s3_key = bool(
+        source_uri
+        and "://" not in source_uri  # rtsp://.../live.mp4 etc. are URLs, not S3 keys
+        and ("failsafe/" in source_uri or source_uri.endswith(".mp4"))
+        and find_local_file(source_uri) is None
+    )
+
+    if is_s3_type or is_s3_uri or (source_type in ("video", "sample", "rtsp") and is_s3_key):
+        s3_target = source_uri if (source_uri and source_uri.strip()) else "failsafe/drone_standby.mp4"
+        try:
+            if not storage.is_s3_enabled():
+                raise HTTPException(
+                    status_code=533,
+                    detail="S3 storage backend is not enabled or boto3 is unavailable."
+                )
+            presigned, clean_descr = presigned_s3_video(s3_target)
+            return RTSPSource(url=presigned, display_name=clean_descr)
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"Failed to resolve S3 feed source: {type(e).__name__} - {e}")
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unable to resolve S3 video source: {e}"
+            ) from e
+
     # Automatically resolve YouTube URLs for RTSP/RTMP or direct links
     if source_uri and ("youtube.com" in source_uri or "youtu.be" in source_uri):
         resolved_stream = _resolve_youtube_stream_url(source_uri)
@@ -240,30 +330,73 @@ def _resolve_source(source_type: str, source_uri: Optional[str]) -> FrameSource:
     if source_type in ("rtsp", "rtmp", "youtube"):
         if not source_uri:
             raise HTTPException(status_code=400, detail="RTSP/RTMP stream URL is required")
-        return RTSPSource(url=source_uri)
+        return RTSPSource(url=source_uri, max_backoff_s=get_settings().feed_reconnect_max_backoff_s)
 
     if source_type in ("video", "sample"):
-        import tempfile
-        sample_path = Path(source_uri) if source_uri else Path("examples/sample_crowd.mp4")
+        sample_path = find_local_file(source_uri) or Path(source_uri or DEFAULT_SAMPLE_VIDEO)
         if not sample_path.exists():
-            default_sample = Path("examples/sample_crowd.mp4")
-            if default_sample.exists():
-                sample_path = default_sample
+            if DEFAULT_SAMPLE_VIDEO.exists():
+                sample_path = DEFAULT_SAMPLE_VIDEO
             else:
-                candidates = list(Path("examples").glob("*.mp4"))
+                candidates = sorted(EXAMPLES_DIR.glob("*.mp4"))
                 if candidates:
                     sample_path = candidates[0]
+                elif storage.is_s3_enabled():
+                    # Fallback to S3 drone standby video if local sample video is missing
+                    presigned, clean_descr = presigned_s3_video("failsafe/drone_standby.mp4")
+                    return RTSPSource(url=presigned, display_name=clean_descr)
                 else:
                     raise HTTPException(status_code=404, detail=f"Sample video path not found: {sample_path}")
 
-        resolved_path = sample_path.resolve()
-        project_root = Path(".").resolve()
-        temp_dir = Path(tempfile.gettempdir()).resolve()
-        is_safe = str(resolved_path).startswith(str(project_root)) or str(resolved_path).startswith(str(temp_dir))
-        if not is_safe:
-            raise HTTPException(status_code=403, detail="Access to the specified video file path is forbidden.")
+        # Any absolute path on the host is allowed (feed creation is admin-only).
         return FileVideoSource(sample_path)
     raise HTTPException(status_code=400, detail=f"Unsupported source_type '{source_type}'")
+
+
+def _make_backup_factory(fallback_uri: str):
+    """Return a zero-arg factory resolving the backup video, or None if it
+    can't be resolved here (S3 disabled and no such local file). Resolved
+    afresh on every failover so presigned S3 URLs never go stale, and set to
+    loop (seek to frame 0 at EOF) so the archive never stops mid-outage."""
+    uri = fallback_uri.strip()
+    if not uri:
+        return None
+    local = find_local_file(uri)
+    if local is None and not storage.is_s3_enabled():
+        logger.warning("Failover backup '%s' not found locally and S3 is disabled; failover off", uri)
+        return None
+    source_type = "s3" if local is None else "video"
+
+    def factory() -> FrameSource:
+        backup = _resolve_source(source_type, uri)
+        if isinstance(backup, (FileVideoSource, RTSPSource)):
+            backup.loop = True
+        return backup
+
+    return factory
+
+
+def _wrap_with_failover(
+    source: FrameSource, fallback_uri: Optional[str], on_status_change
+) -> FrameSource:
+    """Wrap live network streams (RTSP/RTMP/SRT...) in FailoverFrameSource.
+    Files, cameras and finite HTTP media are returned unchanged."""
+    settings = get_settings()
+    if not settings.feed_failover_enabled or not isinstance(source, RTSPSource):
+        return source
+    if not is_live_stream_url(source.url):
+        return source
+    factory = _make_backup_factory(settings.feed_failover_source if fallback_uri is None else fallback_uri)
+    if factory is None:
+        return source
+    return FailoverFrameSource(
+        primary=source,
+        backup_factory=factory,
+        failover_after_s=settings.feed_failover_after_s,
+        recover_after_s=settings.feed_failover_recover_after_s,
+        primary_retry_max_s=settings.feed_reconnect_max_backoff_s,
+        on_status_change=on_status_change,
+    )
 
 
 def _scale_tracked_persons(
@@ -363,7 +496,27 @@ async def create_feed(
     def broadcast_system(envelope: WSEnvelope) -> None:
         asyncio.run_coroutine_threadsafe(connection_manager.broadcast(sys_channel, envelope), loop)
 
+    def on_source_status_change(status: str, reason: str) -> None:
+        # Runs on the producer thread the moment the failover source switches.
+        data = {"source_status": status, "source_status_reason": reason, "source_status_changed_at": time.time()}
+        broadcast(WSEnvelope(type=WSEventType.FEED_PROGRESS, job_id=feed_id, data=data))
+        broadcast_system(WSEnvelope(type=WSEventType.SYSTEM_METRICS, job_id=feed_id, data={"feed_id": feed_id, **data}))
+
+    fallback_uri = req.fallback_uri if req.fallback_uri is not None else drone_fallback_uri(req.device_id, feed_id)
+    source = _wrap_with_failover(source, fallback_uri, on_source_status_change)
+
+    # UI frame transmission is decoupled from the fast loop: detection,
+    # tracking and analytics run on every frame, but annotated JPEGs are only
+    # rendered/encoded/sent at most `feed_ws_max_fps` times a second.
+    min_send_interval_s = 1.0 / settings.feed_ws_max_fps if settings.feed_ws_max_fps > 0 else 0.0
+    last_frame_sent_at = 0.0
+
     def on_fast_result(fast: FastResult) -> None:
+        nonlocal last_frame_sent_at
+        now = time.monotonic()
+        if now - last_frame_sent_at < min_send_interval_s:
+            return
+        last_frame_sent_at = now
         try:
             max_side = settings.feed_frame_max_side
             frame_bgr = fast.frame.frame_bgr
@@ -412,6 +565,9 @@ async def create_feed(
                 "latency_ms": round(fast.latency_ms, 2),
                 "fps": round(1000.0 / fast.latency_ms, 2) if fast.latency_ms > 0 else None,
                 "frame_jpeg": frame_jpeg,
+                # Repeated on every frame so a client that joins mid-outage
+                # still learns the source state without waiting for a switch.
+                "source_status": getattr(source, "source_status", "LIVE"),
             }
             with _feeds_lock:
                 _feed_latest_frames.setdefault(feed_id, {})["frame_jpeg"] = frame_jpeg
@@ -531,10 +687,13 @@ async def create_feed(
         on_error=on_error,
         density_hz=settings.density_analysis_hz,
         loop_source=req.loop,
+        detection_stride=settings.feed_detection_stride,
     )
 
     try:
-        session.start()
+        # Opening a network stream can block for the FFmpeg open timeout (and
+        # a failover start may then open the backup) -- keep the loop free.
+        await asyncio.to_thread(session.start)
     except Exception as exc:
         with _feeds_lock:
             _feed_peaks.pop(feed_id, None)
@@ -658,6 +817,24 @@ async def stop_feed(
         raise HTTPException(status_code=404, detail=f"Feed '{feed_id}' not found")
 
     await _finalize_feed_session(feed_id, connection_manager, reason="user_stop")
+    return _build_feed_response(sess, "feed")
+
+
+@router.post("/{feed_id}/source", response_model=FeedSessionResponse)
+async def set_feed_source_mode(
+    feed_id: str,
+    req: FeedSourceModeRequest,
+    current_user: User = Depends(require_admin),
+) -> FeedSessionResponse:
+    """Manual override for drone failover: 'backup' forces the backup
+    archive, 'auto' returns to automatic failover/recovery."""
+    with _feeds_lock:
+        sess = _active_feeds.get(feed_id)
+    if sess is None:
+        raise HTTPException(status_code=404, detail=f"Feed '{feed_id}' not found")
+    if not isinstance(sess.source, FailoverFrameSource):
+        raise HTTPException(status_code=409, detail="This feed has no backup source configured")
+    sess.source.set_mode(MODE_BACKUP if req.mode == "backup" else MODE_AUTO)
     return _build_feed_response(sess, "feed")
 
 
@@ -839,11 +1016,8 @@ async def get_recording_video(
     if not re.match(r"^[a-zA-Z0-9_\-]+$", session_uid):
         raise HTTPException(status_code=400, detail="Invalid session UID format")
 
-    base_dir = Path("data/live_recordings").resolve()
-    local_path = (base_dir / f"{session_uid}_detection.mp4").resolve()
-    base_str = str(base_dir).lower().rstrip("/\\")
-    local_str = str(local_path).lower()
-    if not (local_str.startswith(base_str + "\\") or local_str.startswith(base_str + "/")):
+    local_path = LIVE_RECORDINGS_DIR / f"{session_uid}_detection.mp4"
+    if not is_within(local_path, LIVE_RECORDINGS_DIR):
         raise HTTPException(status_code=403, detail="Access denied")
 
     # If local file exists, serve it directly

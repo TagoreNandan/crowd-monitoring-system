@@ -90,23 +90,51 @@ def init_db() -> None:
                 db.commit()
                 logger.info("Default demonstration analyst account seeded: username='analyst'")
 
-        # Seed initial sample camera if fleet is empty
-        if db.query(Device).count() == 0:
-            sample_device = Device(
-                device_id="CAM-DEMO-01",
-                name="North Concourse Main Gate",
-                description="High-definition 4K sample surveillance feed for crowd monitoring.",
-                location="Main Terminal Gate 3",
-                stream_type="VIDEO_FILE",
-                stream_url="examples/sample_crowd.mp4",
+        # Seed demonstration camera devices
+        drone_dev = db.query(Device).filter(Device.device_id == "CAM-DRONE-01").first()
+        if not drone_dev:
+            drone_dev = Device(
+                device_id="CAM-DRONE-01",
+                name="Drone Standby Stream (S3)",
+                description="High-altitude aerial crowd surveillance video stored in S3.",
+                location="Main Concourse Overhead",
+                stream_type="S3",
+                stream_url="failsafe/drone_standby.mp4",
                 status="ONLINE",
-                fps=60.0,
-                resolution="3840x2160",
+                fps=30.0,
+                resolution="1920x1080",
                 created_by=admin.id if admin else None,
             )
-            db.add(sample_device)
+            db.add(drone_dev)
+            db.commit()
+            logger.info("S3 demonstration drone device seeded: CAM-DRONE-01")
+
+        demo_dev = db.query(Device).filter(Device.device_id == "CAM-DEMO-01").first()
+        from ..paths import DEFAULT_SAMPLE_VIDEO
+        # stream_url keeps the repo-relative "examples/..." form (forward
+        # slashes are valid on Windows too); feeds resolve it against REPO_ROOT.
+        has_local_sample = DEFAULT_SAMPLE_VIDEO.exists()
+        if not demo_dev:
+            demo_dev = Device(
+                device_id="CAM-DEMO-01",
+                name="North Concourse Main Gate",
+                description="High-definition sample surveillance feed for crowd monitoring.",
+                location="Main Terminal Gate 3",
+                stream_type="VIDEO_FILE" if has_local_sample else "S3",
+                stream_url="examples/sample_crowd.mp4" if has_local_sample else "failsafe/drone_standby.mp4",
+                status="ONLINE",
+                fps=60.0 if has_local_sample else 30.0,
+                resolution="3840x2160" if has_local_sample else "1920x1080",
+                created_by=admin.id if admin else None,
+            )
+            db.add(demo_dev)
             db.commit()
             logger.info("Default demonstration device seeded: CAM-DEMO-01")
+        elif not has_local_sample and demo_dev.stream_url == "examples/sample_crowd.mp4":
+            demo_dev.stream_type = "S3"
+            demo_dev.stream_url = "failsafe/drone_standby.mp4"
+            db.commit()
+            logger.info("Updated CAM-DEMO-01 to use S3 drone standby feed as local sample video is missing.")
 
     except Exception as e:
         logger.error(f"Error initializing database: {e}")

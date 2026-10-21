@@ -20,6 +20,9 @@ from sqlalchemy.orm import Session
 from ..auth.dependencies import get_current_user, get_current_user_optional, log_activity, require_admin
 from ..db.models import Device, User
 from ..db.session import get_db
+from .. import storage
+from ..paths import find_local_file
+from ..utils import parse_s3_source
 from ..schemas.device import (
     DeviceCreateRequest,
     DeviceResponse,
@@ -62,10 +65,33 @@ def _probe_stream_sync(stream_url: str, stream_type: str) -> dict:
     t0 = time.time()
     cap = None
     try:
-        if "youtube.com" in stream_url or "youtu.be" in stream_url:
-            source: Any = _resolve_youtube_stream_url(stream_url)
+        is_s3_type = (stream_type or "").upper() == "S3"
+        is_s3_uri = bool(stream_url and stream_url.startswith("s3://"))
+        local_file = find_local_file(stream_url)
+        # Same rule as feeds._resolve_source: URLs (rtsp://.../live.mp4) and
+        # existing local files (C:\\Users\\...\\video.mp4) are never S3 keys.
+        is_s3_key = bool(
+            stream_url
+            and "://" not in stream_url
+            and ("failsafe/" in stream_url or stream_url.endswith(".mp4"))
+            and local_file is None
+        )
+
+        if is_s3_type or is_s3_uri or is_s3_key:
+            if not storage.is_s3_enabled():
+                return {
+                    "is_reachable": False,
+                    "error": "S3 storage backend is not enabled or boto3 is unavailable",
+                    "latency_ms": round((time.time() - t0) * 1000, 1),
+                }
+            bucket, key = parse_s3_source(stream_url or "failsafe/drone_standby.mp4")
+            source: Any = storage.presigned_url(key=key, bucket=bucket, expires_in=300, response_content_type="video/mp4")
+        elif "youtube.com" in stream_url or "youtu.be" in stream_url:
+            source = _resolve_youtube_stream_url(stream_url)
         elif stream_url.isdigit():
             source = int(stream_url)
+        elif local_file is not None:
+            source = str(local_file)
         else:
             source = stream_url
 

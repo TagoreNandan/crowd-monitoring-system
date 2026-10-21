@@ -45,7 +45,7 @@ import cv2
 
 from ..detection import PersonDetection, PersonDetector
 from ..pipeline import CrowdAnalysisPipeline, FrameResult
-from ..tracking import PersonTracker, TrackedPerson
+from ..tracking import EgoMotionEstimator, PersonTracker, TrackedPerson
 from .frame_source import Frame, FrameSource, SourceMetadata
 from .latest_slot import LatestSlot
 
@@ -61,6 +61,9 @@ class FastResult:
     visible_count: Optional[int]
     latency_ms: float
     frames_seen: int
+    # False when the detector was skipped for this frame (detection_stride)
+    # and `detections` are the last tracked boxes, held as-is.
+    detected: bool = True
 
 
 @dataclass
@@ -106,6 +109,8 @@ class RealtimeFeedSession:
         on_error: Optional[ErrorSink] = None,
         density_hz: float = 1.0,
         loop_source: bool = True,
+        ego_motion_compensation: bool = True,
+        detection_stride: int = 1,
     ):
         self.session_id = session_id
         self._source = source
@@ -117,6 +122,12 @@ class RealtimeFeedSession:
         self._on_error = on_error
         self._density_interval_s = (1.0 / density_hz) if density_hz > 0 else 1.0
         self._loop_source = loop_source
+        # Run the detector on every Nth source frame only; with many feeds
+        # sharing one GPU this is what keeps the detector from saturating.
+        self._detection_stride = max(1, int(detection_stride))
+        # Background-only camera-motion estimate fed to the tracker so IDs
+        # survive drone pans (see crowd_monitoring.tracking.EgoMotionEstimator).
+        self._ego_motion: Optional[EgoMotionEstimator] = EgoMotionEstimator() if ego_motion_compensation else None
 
         self._latest_frame: LatestSlot[Frame] = LatestSlot()
         self._stop_event = threading.Event()
@@ -138,6 +149,16 @@ class RealtimeFeedSession:
     @property
     def is_running(self) -> bool:
         return self.status == "running"
+
+    @property
+    def source(self) -> FrameSource:
+        return self._source
+
+    @property
+    def source_status(self) -> str:
+        """"LIVE", or a failover state ("BACKUP_ACTIVE"/"SIGNAL_LOST") when
+        the source is a `FailoverFrameSource`; plain sources are always LIVE."""
+        return getattr(self._source, "source_status", "LIVE")
 
     def start(self) -> SourceMetadata:
         if self.status == "running":
@@ -223,15 +244,44 @@ class RealtimeFeedSession:
             self._latest_frame.close()
 
     # -- fast path: person detection + tracking against the current latest frame --
+    def _should_detect(self, frame_number: int, last_detected: Optional[int]) -> bool:
+        if last_detected is None or self._detection_stride <= 1:
+            return True
+        # A backwards jump means the source reopened/looped: detect right away.
+        gap = frame_number - last_detected
+        return gap < 0 or gap >= self._detection_stride
+
     def _run_fast_loop(self) -> None:
         last_version = 0
         max_fast_side = 1280
+        last_detected_frame: Optional[int] = None
         while not self._stop_event.is_set():
             frame, last_version = self._latest_frame.get(last_version, timeout=0.5)
             if frame is None:
                 if self._latest_frame.closed:
                     return
                 continue
+            previous = self.latest_fast_result
+            if previous is not None and not self._should_detect(frame.frame_number, last_detected_frame):
+                # Skipped frame: still deliver it (the UI stream stays smooth)
+                # with the last tracked boxes and the last real latency.
+                held = FastResult(
+                    frame=frame,
+                    detections=previous.detections,
+                    visible_count=previous.visible_count,
+                    latency_ms=previous.latency_ms,
+                    frames_seen=self.frames_detected,
+                    detected=False,
+                )
+                try:
+                    if self._on_fast_result is not None:
+                        self._on_fast_result(held)
+                except Exception as exc:
+                    logger.exception("Fast (held frame) callback error in RealtimeFeedSession %s", self.session_id)
+                    self.error_count += 1
+                    self._emit_error("fast", exc)
+                continue
+            last_detected_frame = frame.frame_number
             try:
                 t0 = time.perf_counter()
                 detections: List[PersonDetection]
@@ -261,7 +311,15 @@ class RealtimeFeedSession:
                 else:
                     detections = []
                     visible_count = None
-                tracked = self._tracker.update(detections)
+                motion = None
+                if self._ego_motion is not None:
+                    try:
+                        motion = self._ego_motion.estimate(
+                            frame.frame_bgr, [(d.x1, d.y1, d.x2, d.y2) for d in detections]
+                        )
+                    except Exception:
+                        logger.exception("Ego-motion estimation failed in session %s", self.session_id)
+                tracked = self._tracker.update(detections, motion=motion)
                 latency_ms = (time.perf_counter() - t0) * 1000.0
 
                 self.frames_detected += 1

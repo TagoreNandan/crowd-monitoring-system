@@ -252,6 +252,10 @@ class PersonDetector:
         self._resolved_torch_device: Optional[Any] = None
         self._load_failed = False
         self._lock = threading.Lock()
+        # One Ultralytics model instance is not safe to predict() on from
+        # several threads at once, and every live feed's fast loop shares
+        # this detector -- so predictions are serialized per detector.
+        self._predict_lock = threading.Lock()
 
     @property
     def is_available(self) -> bool:
@@ -272,7 +276,12 @@ class PersonDetector:
             try:
                 from .device import resolve_device
 
-                torch_device = resolve_device(self.device_preference)
+                import torch
+
+                preference = self.device_preference
+                if (preference or "auto").lower() == "auto" and torch.cuda.is_available():
+                    preference = "cuda"
+                torch_device = resolve_device(preference)
                 self._device_str = _torch_device_to_ultralytics_str(torch_device)
                 self._resolved_torch_device = torch_device
 
@@ -387,8 +396,12 @@ class PersonDetector:
     def _predict_single(self, model: Any, crop_bgr: np.ndarray, imgsz: int) -> List[PersonDetection]:
         from .device import get_device_lock
 
+        # FP16 only on CUDA (~2x throughput). On MPS/CPU no precision kwarg is
+        # passed at all: Ultralytics warns about the legacy `half` flag on
+        # every call even when it is False, which spammed the log per frame.
+        precision_kwargs = {"quantize": 16} if self._device_str.startswith("cuda") else {}
         try:
-            with get_device_lock(self._resolved_torch_device):
+            with self._predict_lock, get_device_lock(self._resolved_torch_device):
                 results = model.predict(
                     crop_bgr,
                     classes=[COCO_PERSON_CLASS_ID],
@@ -396,6 +409,7 @@ class PersonDetector:
                     imgsz=imgsz,
                     device=self._device_str,
                     verbose=False,
+                    **precision_kwargs,
                 )
         except Exception as exc:
             if self._device_str != "cpu":
@@ -406,7 +420,7 @@ class PersonDetector:
 
                 self._device_str = "cpu"
                 self._resolved_torch_device = torch.device("cpu")
-                with get_device_lock(self._resolved_torch_device):
+                with self._predict_lock, get_device_lock(self._resolved_torch_device):
                     results = model.predict(
                         crop_bgr,
                         classes=[COCO_PERSON_CLASS_ID],

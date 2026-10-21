@@ -2,6 +2,7 @@ __pycache__/
 *.pyc
 .venv/
 node_modules/
+.env
 .env*
 *.egg-info/
 build/
@@ -31,7 +32,13 @@ examples/*.mp4
 data/*.db
 *.db
 data/live_recordings/
+data/live_recordings/*.mp4
+data/mediamtx.log
 data/jobs/
 
 # Frontend build output
 frontend/dist/
+
+# MediaMTX RTMP server binary (downloaded per OS, launched by the backend)
+mediamtx
+mediamtx.exe

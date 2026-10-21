@@ -9,10 +9,21 @@ import {
   Download,
   Users,
   CheckCircle2,
+  Archive,
+  Radio,
 } from 'lucide-react';
-import type { FeedResponse, VideoFrameMetrics, WSEnvelope, PartialFeedMetrics, RecordingSummary } from '../types/api';
+import type {
+  FeedResponse,
+  FeedSourceMode,
+  VideoFrameMetrics,
+  WSEnvelope,
+  PartialFeedMetrics,
+  RecordingSummary,
+  SourceStatus,
+} from '../types/api';
 import {
   connectWebSocket,
+  setFeedSourceMode,
   startFeedRecording,
   stopFeedRecording,
   getFeedRecordingStatus,
@@ -52,6 +63,12 @@ export const StreamPanel: React.FC<StreamPanelProps> = memo(({
   const [viewMode, setViewMode] = useState<ViewMode>('bbox');
   const [error, setError] = useState<string | null>(null);
 
+  // Drone failover: the backend switches to the backup archive on its own
+  // when the live link drops; sourceMode is the operator's manual override.
+  const [sourceStatus, setSourceStatus] = useState<SourceStatus>(feed.source_status ?? 'LIVE');
+  const [sourceMode, setSourceMode] = useState<FeedSourceMode>(feed.source_mode ?? 'auto');
+  const [sourceModeLoading, setSourceModeLoading] = useState<boolean>(false);
+
   // Recording state
   const [isRecording, setIsRecording] = useState<boolean>(false);
   const [recordingDuration, setRecordingDuration] = useState<number>(0);
@@ -64,6 +81,38 @@ export const StreamPanel: React.FC<StreamPanelProps> = memo(({
   const reconnectAttemptsRef = useRef<number>(0);
   const reconnectTimerRef = useRef<any>(null);
   const connectedFeedIdRef = useRef<string | null>(null);
+
+  // WS messages are buffered here and applied at most once per animation
+  // frame: a burst of frames (or a backgrounded tab catching up) causes one
+  // render with the newest images instead of one render + decode per message.
+  const pendingMetricsRef = useRef<PartialFeedMetrics | null>(null);
+  const pendingImagesRef = useRef<{ frame?: string; heatmap?: string; combined?: string }>({});
+  const flushHandleRef = useRef<number | null>(null);
+  const onMetricsUpdateRef = useRef(onMetricsUpdate);
+  onMetricsUpdateRef.current = onMetricsUpdate;
+
+  const flushPending = useCallback(() => {
+    flushHandleRef.current = null;
+    const partial = pendingMetricsRef.current;
+    const images = pendingImagesRef.current;
+    pendingMetricsRef.current = null;
+    pendingImagesRef.current = {};
+    if (partial) {
+      setMetrics((prev) => {
+        const next = { ...(prev ?? ({} as VideoFrameMetrics)), ...partial };
+        if (onMetricsUpdateRef.current) onMetricsUpdateRef.current(next);
+        return next;
+      });
+    }
+    if (images.frame) setLiveFrame(images.frame);
+    if (images.heatmap) setLiveHeatmap(images.heatmap);
+    if (images.combined) setLiveCombined(images.combined);
+  }, []);
+
+  const scheduleFlush = useCallback(() => {
+    if (flushHandleRef.current !== null) return;
+    flushHandleRef.current = window.requestAnimationFrame(flushPending);
+  }, [flushPending]);
 
   const startRecordingTimer = useCallback((fromSeconds: number) => {
     if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
@@ -94,15 +143,15 @@ export const StreamPanel: React.FC<StreamPanelProps> = memo(({
         `/ws/feeds/${feedId}`,
         (envelope: WSEnvelope) => {
           if (envelope.type === 'feed.progress' && envelope.data) {
-            const partial = envelope.data as PartialFeedMetrics;
-            setMetrics((prev) => {
-              const next = { ...(prev ?? ({} as VideoFrameMetrics)), ...partial };
-              if (onMetricsUpdate) onMetricsUpdate(next);
-              return next;
-            });
-            if (envelope.data.frame_jpeg) setLiveFrame(envelope.data.frame_jpeg);
-            if (envelope.data.heatmap_jpeg) setLiveHeatmap(envelope.data.heatmap_jpeg);
-            if (envelope.data.combined_jpeg) setLiveCombined(envelope.data.combined_jpeg);
+            const { frame_jpeg, heatmap_jpeg, combined_jpeg, ...partial } = envelope.data as PartialFeedMetrics;
+            if (partial.source_status) setSourceStatus(partial.source_status);
+            pendingMetricsRef.current = { ...(pendingMetricsRef.current ?? {}), ...partial };
+            // Only the newest image per view is kept; superseded data URLs are
+            // dropped immediately so they can be garbage-collected.
+            if (frame_jpeg) pendingImagesRef.current.frame = frame_jpeg;
+            if (heatmap_jpeg) pendingImagesRef.current.heatmap = heatmap_jpeg;
+            if (combined_jpeg) pendingImagesRef.current.combined = combined_jpeg;
+            scheduleFlush();
             reconnectAttemptsRef.current = 0;
             setConnectionState('LIVE');
           } else if (envelope.type === 'feed.status') {
@@ -190,6 +239,10 @@ export const StreamPanel: React.FC<StreamPanelProps> = memo(({
       if (wsRef.current) wsRef.current.close();
       if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
       if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
+      if (flushHandleRef.current !== null) window.cancelAnimationFrame(flushHandleRef.current);
+      flushHandleRef.current = null;
+      pendingMetricsRef.current = null;
+      pendingImagesRef.current = {};
     };
   }, [feed.feed_id]);
 
@@ -220,6 +273,19 @@ export const StreamPanel: React.FC<StreamPanelProps> = memo(({
       setError(err.message || 'Failed to stop recording');
     } finally {
       setRecordLoading(false);
+    }
+  };
+
+  const handleToggleSourceMode = async () => {
+    const next: FeedSourceMode = sourceMode === 'backup' ? 'auto' : 'backup';
+    setSourceModeLoading(true);
+    try {
+      const res = await setFeedSourceMode(feed.feed_id, next, token);
+      setSourceMode(res.source_mode ?? next);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to switch feed source');
+    } finally {
+      setSourceModeLoading(false);
     }
   };
 
@@ -283,7 +349,17 @@ export const StreamPanel: React.FC<StreamPanelProps> = memo(({
       <div className="h-9 px-3 bg-zinc-900/90 border-b border-zinc-800/80 flex items-center justify-between z-10 shrink-0">
         <div className="flex items-center gap-2 min-w-0">
           {/* Status Indicator */}
-          {connectionState === 'LIVE' ? (
+          {connectionState === 'LIVE' && sourceStatus === 'BACKUP_ACTIVE' ? (
+            <span className="flex items-center gap-1.5 text-[10px] font-mono font-medium text-amber-400">
+              <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
+              BACKUP
+            </span>
+          ) : connectionState === 'LIVE' && sourceStatus === 'SIGNAL_LOST' ? (
+            <span className="flex items-center gap-1.5 text-[10px] font-mono font-medium text-red-400">
+              <WifiOff className="w-2.5 h-2.5" />
+              NO SIGNAL
+            </span>
+          ) : connectionState === 'LIVE' ? (
             <span className="flex items-center gap-1.5 text-[10px] font-mono font-medium text-emerald-400">
               <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
               LIVE
@@ -314,6 +390,27 @@ export const StreamPanel: React.FC<StreamPanelProps> = memo(({
 
         {/* Top Control Actions */}
         <div className="flex items-center gap-1 shrink-0">
+          {/* Manual failover override (only for feeds with a backup source) */}
+          {feed.failover_enabled && (
+            <button
+              onClick={handleToggleSourceMode}
+              disabled={sourceModeLoading}
+              className={`px-2 py-1 rounded text-[11px] font-mono flex items-center gap-1 transition-colors cursor-pointer border ${
+                sourceMode === 'backup'
+                  ? 'bg-amber-950/80 text-amber-300 border-amber-700/80'
+                  : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 border-zinc-800'
+              }`}
+              title={
+                sourceMode === 'backup'
+                  ? 'Backup forced. Click to resume automatic failover to the live drone feed'
+                  : 'Automatic failover. Click to force the backup archive'
+              }
+            >
+              {sourceMode === 'backup' ? <Archive className="w-3 h-3" /> : <Radio className="w-3 h-3" />}
+              <span className="hidden md:inline">{sourceMode === 'backup' ? 'Backup' : 'Auto'}</span>
+            </button>
+          )}
+
           {/* Record Button */}
           <button
             onClick={isRecording ? handleStopRecording : handleStartRecording}
@@ -394,6 +491,25 @@ export const StreamPanel: React.FC<StreamPanelProps> = memo(({
             Blend
           </button>
         </div>
+        {/* Drone failover HUD badge */}
+        {sourceStatus === 'BACKUP_ACTIVE' && (
+          <div
+            role="status"
+            className="absolute bottom-2 left-1/2 -translate-x-1/2 z-20 max-w-[95%] flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-amber-950/90 border border-amber-500/80 text-amber-300 shadow-lg text-[10px] md:text-[11px] font-mono font-semibold tracking-wide backdrop-blur-sm animate-pulse"
+          >
+            <AlertCircle className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+            <span className="truncate">[DRONE DISCONNECTED — PLAYING BACKUP ARCHIVE]</span>
+          </div>
+        )}
+        {sourceStatus === 'SIGNAL_LOST' && (
+          <div
+            role="status"
+            className="absolute bottom-2 left-1/2 -translate-x-1/2 z-20 max-w-[95%] flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-red-950/90 border border-red-600/80 text-red-300 shadow-lg text-[10px] md:text-[11px] font-mono font-semibold tracking-wide backdrop-blur-sm"
+          >
+            <WifiOff className="w-3.5 h-3.5 text-red-400 shrink-0" />
+            <span className="truncate">[DRONE SIGNAL LOST — BACKUP UNAVAILABLE, RECONNECTING]</span>
+          </div>
+        )}
         {currentVideoSrc ? (
           <img
             src={currentVideoSrc}

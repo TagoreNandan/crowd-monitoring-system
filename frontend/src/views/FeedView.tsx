@@ -77,6 +77,9 @@ export const FeedView: React.FC<FeedViewProps> = ({ initialDevice }) => {
     if (dev.stream_type.toUpperCase() === 'WEBCAM') {
       setSourceType('camera');
       setSourceUri(dev.stream_url);
+    } else if (dev.stream_type.toUpperCase() === 'S3') {
+      setSourceType('s3');
+      setSourceUri(dev.stream_url);
     } else if (dev.stream_type.toUpperCase() === 'VIDEO_FILE') {
       setSourceType('sample');
       setSourceUri(dev.stream_url);
@@ -151,6 +154,7 @@ export const FeedView: React.FC<FeedViewProps> = ({ initialDevice }) => {
       } else {
         let st = 'rtsp';
         if (dev.stream_type.toUpperCase() === 'WEBCAM') st = 'camera';
+        else if (dev.stream_type.toUpperCase() === 'S3') st = 's3';
         else if (dev.stream_type.toUpperCase() === 'VIDEO_FILE') st = 'sample';
         await createFeed(st, dev.stream_url, true, undefined, dev.device_id, dev.name);
       }
@@ -174,6 +178,7 @@ export const FeedView: React.FC<FeedViewProps> = ({ initialDevice }) => {
           if (!isRunning) {
             let st = 'rtsp';
             if (dev.stream_type.toUpperCase() === 'WEBCAM') st = 'camera';
+            else if (dev.stream_type.toUpperCase() === 'S3') st = 's3';
             else if (dev.stream_type.toUpperCase() === 'VIDEO_FILE') st = 'sample';
             await createFeed(st, dev.stream_url, true, undefined, dev.device_id, dev.name).catch(() => {});
           }
@@ -492,6 +497,7 @@ export const FeedView: React.FC<FeedViewProps> = ({ initialDevice }) => {
                 }}
                 className="w-full bg-zinc-950 border border-zinc-800 rounded px-2.5 py-1.5 text-zinc-200 focus:outline-none focus:border-zinc-700"
               >
+                <option value="s3">S3 Drone Video (s3://... or key)</option>
                 <option value="sample">Sample Video File</option>
                 <option value="upload">Upload Video File</option>
                 <option value="camera">Local USB Camera (index 0, 1...)</option>
@@ -519,6 +525,8 @@ export const FeedView: React.FC<FeedViewProps> = ({ initialDevice }) => {
                   <label className="text-zinc-400 block mb-1">
                     {sourceType === 'camera'
                       ? 'Camera Index (e.g. 0 or 1)'
+                      : sourceType === 's3'
+                      ? 'S3 Object Key or s3:// URI'
                       : sourceType === 'sample'
                       ? 'Local Video File Path'
                       : 'Stream URL (RTSP, RTMP, or YouTube URL)'}
@@ -530,6 +538,8 @@ export const FeedView: React.FC<FeedViewProps> = ({ initialDevice }) => {
                     placeholder={
                       sourceType === 'camera'
                         ? '0'
+                        : sourceType === 's3'
+                        ? 'failsafe/drone_standby.mp4'
                         : sourceType === 'sample'
                         ? 'examples/sample_crowd.mp4'
                         : 'rtsp://... or https://www.youtube.com/watch?v=...'

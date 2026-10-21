@@ -91,7 +91,15 @@ export interface VideoFrameMetrics {
 // incoming messages into its metrics state rather than replacing it --
 // otherwise a fast-path update would wipe out the last known
 // estimated_count/heatmap, and vice versa.
-export type PartialFeedMetrics = Partial<VideoFrameMetrics>;
+// Live-drone failover state (see backend crowd_monitoring.streaming.failover).
+export type SourceStatus = 'LIVE' | 'BACKUP_ACTIVE' | 'SIGNAL_LOST';
+export type FeedSourceMode = 'auto' | 'backup';
+
+export type PartialFeedMetrics = Partial<VideoFrameMetrics> & {
+  source_status?: SourceStatus;
+  source_status_reason?: string;
+  source_status_changed_at?: number;
+};
 
 export interface VideoJobSummary {
   frames_processed: number;
@@ -133,6 +141,9 @@ export interface FeedResponse {
   description?: string;
   device_id?: string | null;
   device_name?: string | null;
+  source_status?: SourceStatus;
+  failover_enabled?: boolean;
+  source_mode?: FeedSourceMode | null;
 }
 
 export interface RecordingSummary {

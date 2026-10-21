@@ -24,11 +24,12 @@ import numpy as np
 from crowd_monitoring.video_encoding import ensure_browser_compatible_video, get_preferred_video_fourcc
 
 from . import storage
+from .paths import LIVE_RECORDINGS_DIR
 from .settings import get_settings
 
 logger = logging.getLogger(__name__)
 
-_RECORDING_DIR = Path("data/live_recordings")
+_RECORDING_DIR = LIVE_RECORDINGS_DIR
 
 
 class LiveFeedRecorder:

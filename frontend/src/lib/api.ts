@@ -8,6 +8,7 @@ import type {
   DeviceCreatePayload,
   DeviceUpdatePayload,
   FeedResponse,
+  FeedSourceMode,
   RecordingSummary,
   RecordingStatusResponse,
   JobRecordResponse,
@@ -245,6 +246,19 @@ export async function stopFeed(feedId: string, token?: string): Promise<FeedResp
   });
 
   if (!res.ok) throw new Error(`Failed to stop feed ${feedId}`);
+  return res.json();
+}
+
+export async function setFeedSourceMode(feedId: string, mode: FeedSourceMode, token?: string): Promise<FeedResponse> {
+  const res = await fetch(`${API_BASE}/feeds/${feedId}/source`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getAuthHeaders(token) },
+    body: JSON.stringify({ mode }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error?.message || err.detail || `Failed to switch feed source (${res.status})`);
+  }
   return res.json();
 }
 

@@ -60,3 +60,28 @@ async def save_upload_to_tempfile(upload: UploadFile, max_bytes: int, chunk_size
         tmp_path.unlink(missing_ok=True)
         raise InvalidUploadError("Uploaded file is empty.")
     return tmp_path
+
+
+def parse_s3_source(source_uri: str, default_bucket: str | None = None) -> tuple[str, str]:
+    """Parse an S3 URI (s3://bucket/key) or object key into (bucket, key)."""
+    clean_uri = (source_uri or "").strip()
+    if clean_uri.startswith("s3://"):
+        parts = clean_uri[5:].split("/", 1)
+        bucket = parts[0]
+        key = parts[1] if len(parts) > 1 else ""
+        if not bucket or not key:
+            raise ValueError(f"Invalid S3 URI format: '{source_uri}'")
+        return bucket, key
+
+    bucket = default_bucket or os.environ.get("S3_BUCKET_NAME", "ground-control-assets-tagore")
+    return bucket, clean_uri
+
+
+def redact_presigned_url(url: str) -> str:
+    """Redact query parameters (signatures/tokens) from presigned URLs for safe logging and descriptions."""
+    if not url:
+        return ""
+    if "?" in url:
+        return url.split("?")[0]
+    return url
+

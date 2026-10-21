@@ -49,7 +49,7 @@ import cv2
 from crowd_monitoring.detection import PersonDetector
 from crowd_monitoring.overlay import draw_density_heatmap_overlay, draw_stats_panel, render_video_overlay
 from crowd_monitoring.streaming import FileVideoSource
-from crowd_monitoring.tracking import PersonTracker
+from crowd_monitoring.tracking import EgoMotionEstimator, PersonTracker
 from crowd_monitoring.video import StreamState
 from crowd_monitoring.video_encoding import ensure_browser_compatible_video, get_preferred_video_fourcc
 
@@ -219,6 +219,7 @@ async def run_video_job(
     started = time.time()
     state = StreamState()
     tracker = PersonTracker()
+    ego_motion = EgoMotionEstimator()
     frames_processed = 0
     frames_detected = 0
     density_updates = 0
@@ -281,7 +282,10 @@ async def run_video_job(
                 detections, visible_count, detector_broken = await detect_persons_async(
                     runtime.run_sync, person_detector, frame.frame_bgr, f"video job {job_id}", detector_broken
                 )
-                tracked_boxes = tracker.update(detections)
+                motion = await runtime.run_sync(
+                    ego_motion.estimate, frame.frame_bgr, [(d.x1, d.y1, d.x2, d.y2) for d in detections]
+                )
+                tracked_boxes = tracker.update(detections, motion=motion)
                 frames_detected += 1
 
             # Expensive, periodic: DM-Count density/heatmap/localization/risk.

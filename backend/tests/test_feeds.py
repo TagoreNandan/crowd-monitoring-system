@@ -4,14 +4,14 @@ import pytest
 from starlette.testclient import TestClient
 
 
-def test_feeds_endpoints(client: TestClient):
+def test_feeds_endpoints(client: TestClient, sample_video_path):
     # List initial feeds
     res = client.get("/api/feeds")
     assert res.status_code == 200
     assert isinstance(res.json(), list)
 
     # Start sample feed
-    payload = {"source_type": "sample", "loop": False}
+    payload = {"source_type": "sample", "source_uri": sample_video_path, "loop": False}
     res = client.post("/api/feeds", json=payload)
     assert res.status_code == 201
     data = res.json()
@@ -29,7 +29,7 @@ def test_feeds_endpoints(client: TestClient):
     assert res_stop.json()["status"] in ("stopped", "completed")
 
 
-def test_feed_websocket_carries_real_analytics_and_annotated_frame(client: TestClient):
+def test_feed_websocket_carries_real_analytics_and_annotated_frame(client: TestClient, sample_video_path):
     """A successful WebSocket connection alone is not a successful real-time
     feed: the browser needs actual per-frame analytics (visible_count
     distinct from estimated_count) and an actual annotated JPEG frame to
@@ -40,7 +40,7 @@ def test_feed_websocket_carries_real_analytics_and_annotated_frame(client: TestC
     one loop's fields, so this merges messages the same way the real
     frontend does (FeedView.tsx) before asserting on the merged result.
     """
-    res = client.post("/api/feeds", json={"source_type": "sample", "loop": True})
+    res = client.post("/api/feeds", json={"source_type": "sample", "source_uri": sample_video_path, "loop": True})
     assert res.status_code == 201
     feed_id = res.json()["feed_id"]
 
@@ -89,12 +89,12 @@ def test_feed_websocket_carries_real_analytics_and_annotated_frame(client: TestC
         client.post(f"/api/feeds/{feed_id}/stop")
 
 
-def test_feed_fast_path_delivers_multiple_frames_while_density_pass_runs(client: TestClient):
+def test_feed_fast_path_delivers_multiple_frames_while_density_pass_runs(client: TestClient, sample_video_path):
     """This is the actual regression test for the "realtime visibly stalls"
     bug: the fast (detector) path must keep delivering new frames while a
     single slow DM-Count pass is in flight, not block on it. Asserts on
     real frame_number progression and wall-clock timing, not mocks."""
-    res = client.post("/api/feeds", json={"source_type": "sample", "loop": True})
+    res = client.post("/api/feeds", json={"source_type": "sample", "source_uri": sample_video_path, "loop": True})
     assert res.status_code == 201
     feed_id = res.json()["feed_id"]
 

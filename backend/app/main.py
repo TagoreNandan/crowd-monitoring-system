@@ -21,6 +21,7 @@ from .errors import install_exception_handlers
 from .logging_config import configure_logging
 from .pipeline_runtime import build_pipeline_kwargs
 from .live_recording import recover_orphaned_recordings
+from .mediamtx import MediaMTXServer
 from .routers import admin as admin_router
 from .routers import activity as activity_router
 from .routers import analytics as analytics_router
@@ -38,6 +39,15 @@ from .ws.router import router as ws_router
 logger = logging.getLogger(__name__)
 
 
+def _log_recovery_result(task: asyncio.Task) -> None:
+    if task.cancelled():
+        return
+    if task.exception() is not None:
+        logger.error(
+            "Failed to recover orphaned live-feed recordings at startup.", exc_info=task.exception()
+        )
+
+
 @asynccontextmanager
 async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # Initialize SQLite database schema and seed default administrator
@@ -47,12 +57,22 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     except Exception:
         logger.exception("Database initialization failed.")
 
-    try:
-        await asyncio.to_thread(recover_orphaned_recordings)
-    except Exception:
-        logger.exception("Failed to recover orphaned live-feed recordings at startup.")
-
     settings = get_settings()
+
+    mediamtx: MediaMTXServer | None = None
+    if settings.mediamtx_enabled:
+        mediamtx = MediaMTXServer(settings.mediamtx_path, rtmp_port=settings.mediamtx_rtmp_port)
+        try:
+            mediamtx.start()
+        except Exception:
+            logger.exception("Failed to launch MediaMTX; RTMP ingest unavailable.")
+            mediamtx = None
+
+    # Upload recordings orphaned by a previous crash in the background, so
+    # the API starts serving immediately instead of waiting on S3.
+    recovery_task = asyncio.create_task(asyncio.to_thread(recover_orphaned_recordings))
+    recovery_task.add_done_callback(_log_recovery_result)
+
     app_state = AppState(settings=settings, pipeline_kwargs=build_pipeline_kwargs())
     app.state.app_state = app_state
 
@@ -62,9 +82,15 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     except Exception:
         logger.exception("crowd_monitoring pipeline failed to load at startup; will retry lazily on first use.")
 
+    if mediamtx is not None:
+        await asyncio.sleep(0.5)
+        mediamtx.check_started()
+
     yield
 
     app_state.pipeline_runtime.shutdown()
+    if mediamtx is not None:
+        await asyncio.to_thread(mediamtx.stop)
 
 
 def create_app() -> FastAPI:

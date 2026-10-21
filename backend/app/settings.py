@@ -111,8 +111,8 @@ class Settings(BaseSettings):
 
     # JPEG quality (1-100) for annotated frames streamed over the real-time
     # feed WebSocket. Lower = smaller payload/less bandwidth, at the cost of
-    # visual quality; 75 is a reasonable balance for a live preview.
-    feed_frame_jpeg_quality: int = 75
+    # visual quality; 50 keeps a 960px frame around 30-60 KB for live preview.
+    feed_frame_jpeg_quality: int = 50
 
     # Long side (px) annotated frames are downscaled to before JPEG-encoding
     # for the real-time feed WebSocket -- keeps a 4K source from sending a
@@ -121,9 +121,39 @@ class Settings(BaseSettings):
     # full/high-resolution frame regardless of what the browser is shown.
     feed_frame_max_side: int = 960
 
+    # Max annotated frames/sec pushed to each feed WebSocket. The detector/
+    # tracker/density loops are unaffected; this only caps UI transmission
+    # so a 15-20 fps fast path can't flood the LAN or the browser.
+    feed_ws_max_fps: float = 10.0
+
     # Nominal FPS for live-feed detection recordings when STORAGE_BACKEND=s3.
     # Heatmap and combined views are saved as timestamped JPEG snapshots.
     live_feed_recording_fps: float = 8.0
+
+    # Live drone (RTSP/RTMP/SRT) failover. When the primary stream delivers no
+    # frames for `feed_failover_after_s`, the feed switches to
+    # `feed_failover_source` (an S3 key / s3:// URI or a local video path)
+    # and switches back once the drone link recovers. A request's own
+    # `fallback_uri` overrides the default per feed.
+    feed_failover_enabled: bool = True
+    feed_failover_source: str = "failsafe/drone_standby.mp4"
+    # 0.8s: near-instant switch, while a single dropped frame (~33-66ms at
+    # 15-30 fps) or a short jitter burst never triggers it.
+    feed_failover_after_s: float = 0.8
+    feed_failover_recover_after_s: float = 1.0
+    # Cap for the RTSP reconnect backoff (1s, 2s, 4s, ... up to this).
+    feed_reconnect_max_backoff_s: float = 5.0
+
+    # Run the person detector on every Nth source frame per feed; frames in
+    # between reuse the last tracked boxes. 3 keeps 7 concurrent 25-30 fps
+    # streams to ~60 detector passes/sec on one GPU. 1 = every frame.
+    feed_detection_stride: int = 3
+
+    # Launch the bundled MediaMTX RTMP server with the API (see backend/app/mediamtx.py).
+    # mediamtx_path overrides the auto-lookup (mediamtx.exe on Windows, ./mediamtx elsewhere).
+    mediamtx_enabled: bool = True
+    mediamtx_path: str = ""
+    mediamtx_rtmp_port: int = 1935
 
     @property
     def cors_origin_list(self) -> list[str]:
