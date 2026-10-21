@@ -22,7 +22,8 @@ import type {
 } from '../types/api';
 import type { ImageUrlInfo } from '../types/api';
 
-const API_BASE = '/api';
+const BACKEND_DOMAIN = 'rat-independence-warehouse-structures.trycloudflare.com';
+const API_BASE = `https://${BACKEND_DOMAIN}/api`;
 const TOKEN_KEY = 'cms_auth_token';
 
 export function getStoredToken(): string | null {
@@ -302,12 +303,10 @@ export function connectWebSocket(
   onMessage: (msg: WSEnvelope) => void,
   onStatusChange?: (connected: boolean) => void
 ): WebSocket {
-  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const host = window.location.host;
   const token = getStoredToken();
   const sep = path.includes('?') ? '&' : '?';
   const query = token ? `${sep}token=${encodeURIComponent(token)}` : '';
-  const wsUrl = `${protocol}//${host}${path}${query}`;
+  const wsUrl = `wss://${BACKEND_DOMAIN}${path}${query}`;
 
   const ws = new WebSocket(wsUrl);
 
