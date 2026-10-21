@@ -22,7 +22,7 @@ import type {
 } from '../types/api';
 import type { ImageUrlInfo } from '../types/api';
 
-const BACKEND_DOMAIN = 'rat-independence-warehouse-structures.trycloudflare.com';
+const BACKEND_DOMAIN = 'your-brand-new-words.trycloudflare.com';
 const API_BASE = `https://${BACKEND_DOMAIN}/api`;
 const TOKEN_KEY = 'cms_auth_token';
 
